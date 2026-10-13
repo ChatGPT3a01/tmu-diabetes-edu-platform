@@ -1,0 +1,29 @@
+# Netlify 部署：前端（public/）＋後端（netlify/functions/api.mjs）＋研究資料（Netlify Blobs）
+[build]
+  publish = "public"
+  command = "node scripts/build.js"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  # 函式已由 scripts/build.js 完整打包，Netlify 直接上傳不再處理
+  node_bundler = "none"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    Permissions-Policy = "camera=(), geolocation=(), microphone=(self)"
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

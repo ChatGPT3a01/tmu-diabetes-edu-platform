@@ -208,7 +208,8 @@
       <div class="card"><div class="table-wrap"><table class="tbl compact"><thead><tr><th>帳號</th><th>名稱</th><th>角色</th><th>狀態</th><th>最後登入</th><th>操作</th></tr></thead>
       <tbody>${users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td><td>${u.role}</td><td>${u.active ? '啟用' : '停用'}</td><td>${fmtTime(u.last_login)}</td>
         <td>${u.username === ME.username ? '（自己）' : `<button class="btn ghost small" data-act="toggle" data-u="${esc(u.username)}" data-a="${u.active}">${u.active ? '停用' : '啟用'}</button>
-        <button class="btn ghost small" data-act="pw" data-u="${esc(u.username)}">重設密碼</button>`}</td></tr>`).join('')}</tbody></table></div></div>
+        <button class="btn ghost small" data-act="pw" data-u="${esc(u.username)}">重設密碼</button>
+        <button class="btn ghost small" data-act="del" data-u="${esc(u.username)}">刪除</button>`}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="card" style="max-width:560px"><h2>新增帳號</h2>
         <div class="field"><label for="nu">帳號</label><input id="nu" class="input" autocomplete="off"></div>
         <div class="field"><label for="nn">顯示名稱</label><input id="nn" class="input" autocomplete="off"></div>
@@ -218,6 +219,7 @@
     $$('[data-act]', el).forEach(b => b.addEventListener('click', async () => {
       try {
         if (b.dataset.act === 'toggle') await api('/api/admin/users/' + encodeURIComponent(b.dataset.u), { method: 'PATCH', body: { active: b.dataset.a !== '1' } });
+        else if (b.dataset.act === 'del') { if (!confirm(`確定刪除帳號「${b.dataset.u}」？`)) return; await api('/api/admin/users/' + encodeURIComponent(b.dataset.u), { method: 'DELETE' }); }
         else { const pw = prompt('輸入新密碼（至少 10 碼，含英文與數字）'); if (!pw) return; await api('/api/admin/users/' + encodeURIComponent(b.dataset.u), { method: 'PATCH', body: { password: pw } }); }
         toast('已更新'); render();
       } catch (e) { toast(e.message); }

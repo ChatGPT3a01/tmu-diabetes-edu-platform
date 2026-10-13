@@ -14,8 +14,13 @@
     "node": ">=22.13"
   },
   "dependencies": {
+    "@netlify/blobs": "^11.1.4",
     "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
-    "express": "^4.22.3"
+    "express": "^4.22.3",
+    "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
   }
 }

@@ -1,9 +1,9 @@
-# 前端（受試者介面）部署到 GitHub Pages；研究者後臺不放 Pages（只在後端網址提供）
-name: Deploy frontend to GitHub Pages
+# GitHub Pages 只做「轉址」：正式網站統一在 Netlify（https://tmu-diabetes-edu.netlify.app）
+name: Redirect GitHub Pages to Netlify
 on:
   push:
     branches: [main]
-    paths: ['public/**', '.github/workflows/pages.yml']
+    paths: ['.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,16 +19,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Build static site
-        env:
-          API_BASE: ${{ vars.API_BASE }}
+      - name: Build redirect page
         run: |
           mkdir _site
-          cp -r public/. _site/
-          rm -rf _site/admin
-          echo "window.DM_API_BASE = '${API_BASE}';" > _site/config.js
-          touch _site/.nojekyll
+          cat > _site/index.html <<'HTML'
+          <!doctype html><html lang="zh-Hant-TW"><head><meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=https://tmu-diabetes-edu.netlify.app/">
+          <link rel="canonical" href="https://tmu-diabetes-edu.netlify.app/"><title>糖尿病互動衛教平台</title></head>
+          <body><p>網站已搬家，正在前往 <a href="https://tmu-diabetes-edu.netlify.app/">https://tmu-diabetes-edu.netlify.app/</a></p></body></html>
+          HTML
+          cp _site/index.html _site/404.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

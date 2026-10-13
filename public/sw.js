@@ -1,6 +1,6 @@
 // PWA Service Worker：靜態檔快取（可離線開啟）；研究 API 一律走網路，不快取
 // 使用相對路徑，可同時在網站根目錄與 GitHub Pages 子路徑運作
-const CACHE = 'dm-edu-v5';
+const CACHE = 'dm-edu-v7';
 const SHELL = ['./', 'index.html', 'config.js', 'css/app.css', 'js/app.js', 'js/widgets.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

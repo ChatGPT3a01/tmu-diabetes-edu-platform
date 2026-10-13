@@ -314,6 +314,17 @@
     const title = phase === 'pre' ? '知識前測' : '知識後測';
     const intro = () => phase === 'pre' ? T.intro + ' 前測完成後不會立即顯示分數。' : '恭喜完成所有學習單元！請再作答一次相同主題的測驗，完成後就能看到學習成果。';
     let shownAt, changes;
+    // 答案在背景依序儲存（不讓長者每題等待網路）；送出測驗前會確認全部存好
+    let chain = Promise.resolve(); const failed = new Map();
+    const saveAnswer = payload => {
+      chain = chain.then(async () => {
+        for (let t = 0; t < 3; t++) {
+          try { await api('/api/p/test/answer', payload); failed.delete(payload.item_id); return; }
+          catch (e) { if (e.status && e.status < 500 && e.status !== 409) { failed.set(payload.item_id, payload); return; } await new Promise(r => setTimeout(r, 800 * (t + 1))); }
+        }
+        failed.set(payload.item_id, payload);
+      });
+    };
     const show = () => {
       const it = items[idx]; shownAt = performance.now(); changes = 0;
       const sel = answered[it.id];
@@ -336,16 +347,21 @@
         const btn = $('#nxt'); btn.disabled = true;
         try {
           if (cur !== sel || answered[it.id] == null) {
-            await api('/api/p/test/answer', { phase, item_id: it.id, response: cur, time_on_task: Math.round((performance.now() - shownAt) / 100) / 10, attempt_count: Math.max(1, changes) });
+            saveAnswer({ phase, item_id: it.id, response: cur, time_on_task: Math.round((performance.now() - shownAt) / 100) / 10, attempt_count: Math.max(1, changes) });
             answered[it.id] = cur;
           }
           if (idx < items.length - 1) { idx++; S.state[key] = idx; saveState(); show(); return; }
           const miss = items.filter(x => answered[x.id] == null);
           if (miss.length) { idx = items.indexOf(miss[0]); S.state[key] = idx; show(); toast(`還有 ${miss.length} 題未作答`); return; }
+          btn.textContent = '儲存中，請稍候…';
+          await chain;
+          for (const p of [...failed.values()]) saveAnswer(p);
+          await chain;
+          if (failed.size) throw new Error(`有 ${failed.size} 題答案尚未儲存成功，請確認網路後再按一次「送出測驗」`);
           const r = await api('/api/p/test/complete', { phase });
           if (phase === 'pre') { S.pretestDone = true; S.state.stage = 'modules'; saveState(); finishPre(el); }
           else { S.posttestDone = true; S.state.stage = 'se'; S.summary = r.summary; saveState(); finishPost(el); }
-        } catch (e) { const er = $('#t-err'); er.textContent = e.message; er.hidden = false; btn.disabled = false; }
+        } catch (e) { const er = $('#t-err'); er.textContent = e.message; er.hidden = false; btn.disabled = false; btn.textContent = '送出測驗 ✓'; }
       });
     };
     show();

@@ -2,12 +2,21 @@
 const fs = require('fs');
 const path = require('path');
 
-const CONTENT_PATH = path.join(__dirname, '..', 'content', 'content.json');
-const BACKUP_DIR = path.join(__dirname, '..', 'content', 'backups');
+const HERE = typeof __dirname === 'string' ? __dirname : process.cwd(); // 被打包進 Netlify 函式時沒有 __dirname
+const CONTENT_PATH = path.join(HERE, '..', 'content', 'content.json');
+const BACKUP_DIR = path.join(HERE, '..', 'content', 'backups');
 let cache = null;
 
+// Netlify（STORAGE=blobs）環境檔案系統唯讀：後臺修改的內容存在 Blobs，由 blobsync 注入覆寫
+let override = null, pendingSave = null, blobBackups = [];
+function setOverride(obj) { override = obj; }
+function takePendingSave() { const p = pendingSave; pendingSave = null; return p; }
+function setBlobBackups(list) { blobBackups = list; }
+
 function load() {
-  if (!cache) cache = JSON.parse(fs.readFileSync(CONTENT_PATH, 'utf8'));
+  if (override) return override;
+  // Netlify 函式：衛教內容直接打包進程式（require JSON），不依賴檔案路徑
+  if (!cache) cache = process.env.STORAGE === 'blobs' ? JSON.parse(JSON.stringify(require('../content/content.json'))) : JSON.parse(fs.readFileSync(CONTENT_PATH, 'utf8'));
   return cache;
 }
 
@@ -41,8 +50,13 @@ function validate(obj) {
 function save(obj) {
   const errs = validate(obj);
   if (errs.length) { const e = new Error(errs.join('；')); e.status = 400; throw e; }
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  if (process.env.STORAGE === 'blobs') {
+    pendingSave = { stamp, prev: load(), next: obj };
+    override = obj;
+    return stamp;
+  }
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
   fs.copyFileSync(CONTENT_PATH, path.join(BACKUP_DIR, `content_${stamp}.json`));
   fs.writeFileSync(CONTENT_PATH, JSON.stringify(obj, null, 2), 'utf8');
   cache = null;
@@ -50,8 +64,9 @@ function save(obj) {
 }
 
 function listBackups() {
+  if (process.env.STORAGE === 'blobs') return blobBackups.slice().sort().reverse();
   if (!fs.existsSync(BACKUP_DIR)) return [];
   return fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json')).sort().reverse();
 }
 
-module.exports = { load, publicContent, save, validate, listBackups };
+module.exports = { load, publicContent, save, validate, listBackups, setOverride, takePendingSave, setBlobBackups };

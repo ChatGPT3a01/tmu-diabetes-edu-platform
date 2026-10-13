@@ -1,6 +1,7 @@
 // 生成式 AI 智慧助理輔助之成年人糖尿病互動衛教平台 — 伺服器
 const path = require('path');
 const fs = require('fs');
+const HERE = typeof __dirname === 'string' ? __dirname : process.cwd(); // 被打包進 Netlify 函式時沒有 __dirname
 const express = require('express');
 const { get, run, all, audit, DB_PATH } = require('./src/db');
 const content = require('./src/content');
@@ -225,6 +226,14 @@ app.patch('/api/admin/users/:u', R_ADMIN, (req, res) => {
   audit(req.user.username, 'update_user', `${u} ${JSON.stringify({ active, role, password: password ? '***' : undefined })}`);
   res.json({ ok: true });
 });
+app.delete('/api/admin/users/:u', R_ADMIN, (req, res) => {
+  const u = req.params.u;
+  if (u === req.user.username) return res.status(400).json({ error: '不能刪除自己的帳號' });
+  const r = run('DELETE FROM users WHERE username = ?', u);
+  if (!r.changes) return res.status(404).json({ error: '帳號不存在' });
+  audit(req.user.username, 'delete_user', u);
+  res.json({ ok: true });
+});
 // 任何登入者可改自己的密碼
 app.post('/api/admin/me/password', R_ANY, (req, res) => {
   const { old_password, new_password } = req.body || {};
@@ -275,12 +284,12 @@ app.get('/api/admin/system', R_ADMIN, (req, res) => {
 app.get('/api/admin/audit', R_ADMIN, (req, res) => res.json(all('SELECT * FROM audit_log ORDER BY id DESC LIMIT 300')));
 
 // ===================== 靜態檔 =====================
-app.use('/vendor/chart.umd.js', (req, res) => res.sendFile(path.join(__dirname, 'node_modules', 'chart.js', 'dist', fs.existsSync(path.join(__dirname, 'node_modules', 'chart.js', 'dist', 'chart.umd.min.js')) ? 'chart.umd.min.js' : 'chart.umd.js')));
-app.use('/admin', express.static(path.join(__dirname, 'public', 'admin'), { index: 'index.html' }));
-app.use(express.static(path.join(__dirname, 'public'), {
+app.use('/vendor/chart.umd.js', (req, res) => res.sendFile(path.join(HERE, 'node_modules', 'chart.js', 'dist', fs.existsSync(path.join(HERE, 'node_modules', 'chart.js', 'dist', 'chart.umd.min.js')) ? 'chart.umd.min.js' : 'chart.umd.js')));
+app.use('/admin', express.static(path.join(HERE, 'public', 'admin'), { index: 'index.html' }));
+app.use(express.static(path.join(HERE, 'public'), {
   setHeaders: (res, fp) => { if (fp.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); }
 }));
-app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(HERE, 'public', 'index.html')));
 
 // 錯誤處理
 app.use((err, req, res, next) => {
@@ -289,7 +298,7 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: status >= 500 ? '伺服器發生錯誤，請稍後再試' : err.message });
 });
 
-auth.ensureBootstrapAdmin();
+if (process.env.STORAGE !== 'blobs') auth.ensureBootstrapAdmin(); // Netlify 版由 blobsync 在載入帳號後處理
 if (require.main === module) {
   app.listen(PORT, () => console.log(`[server] 糖尿病互動衛教平台 http://localhost:${PORT}  研究者後臺 http://localhost:${PORT}/admin  AI=${aiSvc.providerInfo().provider}`));
 }

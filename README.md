@@ -2,7 +2,12 @@
 
 繁體中文糖尿病互動衛教平台，同時作為**研究資料蒐集工具**：電子同意 → 匿名 Participant ID → 基本資料 → 知識前測 → 8 個互動衛教模組 → AI 智慧助理 → 知識後測 → 自我效能 → 系統滿意度 → 完成頁（學習成果摘要）。研究者後臺與受試者介面分開。
 
-## 快速開始
+## 線上網址
+
+- 網站（受試者）：https://tmu-diabetes-edu.netlify.app
+- 研究者後臺：https://tmu-diabetes-edu.netlify.app/admin
+
+## 快速開始（本機）
 
 ```bash
 # 需要 Node.js 22.13 以上（使用內建 node:sqlite，免編譯）
@@ -61,10 +66,23 @@ set OPENAI_MODEL=gpt-5.6-terra      # 或 gpt-5.6-sol、gpt-5.6-luna
 ```
 LLM 失敗時自動退回本機知識庫；安全守門永遠在 LLM 之前執行。
 
+## 部署到 Netlify（免費方案）
+
+前端、後端 API、研究者後臺都在同一個 Netlify 網站；研究資料存在 Netlify Blobs，不需要另外的資料庫或付費主機。
+
+- `scripts/build.js`：複製 Chart.js，並用 esbuild 把後端打包成 `netlify/functions/api.mjs`（Netlify v2 函式，路由 `/api/*`）。
+- `src/blobsync.js`：每次請求從 Blobs 載入所需資料到記憶體 SQLite，執行完只寫回有變動的部分；用條件寫入防止同時寫入互相覆蓋。
+- 必要環境變數（Netlify 後臺 Project configuration → Environment variables，Functions 範圍）：`ADMIN_PASSWORD`（首次建立 admin 用）、`TRUST_PROXY=1`、`COOKIE_SECURE=1`。
+- 部署指令：`npm ci && netlify deploy --prod`（已 `netlify link` 的情況下）。
+- 免費額度用完時 Netlify 會暫停網站，不會自動收費。
+
 ## 架構
 
 ```
 server.js            Express 路由（/api/p/* 受試者、/api/admin/* 研究者）、安全標頭與 CSP
+src/lambda.js        把 Express 包成函式處理器＋Blobs 同步（Netlify 用）
+src/blobsync.js      Netlify Blobs ↔ 記憶體 SQLite 同步層
+netlify/src/entry.mjs Netlify v2 函式入口（建置時打包）
 src/db.js            SQLite（node:sqlite）資料表；日後換 PostgreSQL 只需替換此層
 src/participant.js   受試者核心流程（路由與模擬資料共用）
 src/ai.js            AI 分類、守門、本機知識庫／OpenAI／Gemini
@@ -79,7 +97,7 @@ data/platform.db     研究資料庫（不納入版控）
 
 ## 正式部署前注意
 
-- 以 HTTPS 部署並設 `COOKIE_SECURE=1`；在反向代理後面設 `TRUST_PROXY=1`。
+- Netlify 已是 HTTPS；自架主機時請以 HTTPS 部署並設 `COOKIE_SECURE=1`、`TRUST_PROXY=1`。
 - 自我效能量表目前為**研究者自編題目（待確認）**，正式施測請替換為已授權之信效度量表；SUS 為公開量表中文版。
 - 同意書聯絡資訊、IRB 編號**待確認**後填入 `content/content.json` 的 `consent`。
 - 衛教內容請由醫療專業人員審閱後再上線。

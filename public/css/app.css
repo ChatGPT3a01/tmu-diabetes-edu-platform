@@ -297,3 +297,6 @@ footer.site { text-align: center; color: var(--ink-2); font-size: .8rem; padding
 html.device-mobile footer.site { padding-bottom: 110px; }
 @media (max-width: 640px) { .body-map svg { max-height: 300px; width: auto; } }
 html.device-mobile .actions.sticky .btn.ghost { flex: 0 0 auto; padding-left: .9rem; padding-right: .9rem; }
+.actions:not(.sticky) { flex-wrap: wrap; }
+.actions:not(.sticky) .btn { min-width: 8em; }
+.celebrate { overflow: hidden; }

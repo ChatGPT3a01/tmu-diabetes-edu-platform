@@ -4,12 +4,15 @@ const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_PATH = path.join(DATA_DIR, 'platform.db');
+// STORAGE=blobs（Netlify Functions）：資料庫在記憶體，每次請求由 src/blobsync.js 從 Netlify Blobs 載入／寫回
+const BLOBS = process.env.STORAGE === 'blobs';
+const HERE = typeof __dirname === 'string' ? __dirname : process.cwd(); // 被打包進 Netlify 函式時沒有 __dirname
+const DATA_DIR = process.env.DATA_DIR || path.join(HERE, '..', 'data');
+if (!BLOBS) fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_PATH = BLOBS ? ':memory:' : path.join(DATA_DIR, 'platform.db');
 
 const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+db.exec(BLOBS ? 'PRAGMA foreign_keys = ON;' : 'PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS participants (
@@ -147,4 +150,4 @@ function audit(username, action, detail) {
   run('INSERT INTO audit_log (username, action, detail, at) VALUES (?,?,?,?)', username || null, action, detail ? String(detail).slice(0, 2000) : null, now());
 }
 
-module.exports = { db, all, get, run, tx, now, insertEvent, audit, EVENT_COLS, DATA_DIR, DB_PATH };
+module.exports = { db, all, get, run, tx, now, insertEvent, audit, EVENT_COLS, DATA_DIR, DB_PATH, BLOBS };
