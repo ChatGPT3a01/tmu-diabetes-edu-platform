@@ -1,0 +1,37 @@
+# 前端（受試者介面）部署到 GitHub Pages；研究者後臺不放 Pages（只在後端網址提供）
+name: Deploy frontend to GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths: ['public/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static site
+        env:
+          API_BASE: ${{ vars.API_BASE }}
+        run: |
+          mkdir _site
+          cp -r public/. _site/
+          rm -rf _site/admin
+          echo "window.DM_API_BASE = '${API_BASE}';" > _site/config.js
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

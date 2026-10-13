@@ -27,6 +27,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// 跨網域（前端放 GitHub Pages、後端放 Render）：只對白名單網域開放「受試者 API」；研究者後臺 API 一律不開放
+// ALLOWED_ORIGINS=https://chatgpt3a01.github.io,http://localhost:8080（逗號分隔）
+const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean));
+app.use(['/api/p', '/api/content', '/api/health'], (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Participant-Token, X-Session-Id');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(origin && ALLOWED_ORIGINS.has(origin) ? 204 : 403);
+  next();
+});
+
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const deviceOf = ua => /iPad|Tablet|(Android(?!.*Mobile))/i.test(ua || '') ? 'tablet' : /Mobi|iPhone|Android/i.test(ua || '') ? 'mobile' : 'desktop';
 

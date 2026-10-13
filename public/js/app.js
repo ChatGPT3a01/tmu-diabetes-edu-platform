@@ -54,8 +54,10 @@
   applyPrefs();
 
   // ---------- API 與事件紀錄 ----------
+  // 後端網址：同站部署時為空字串；前端放 GitHub Pages 時由 config.js 指定 Render 網址
+  const API = String(window.DM_API_BASE || '').replace(/\/+$/, '');
   async function api(path, body, method = 'POST') {
-    const res = await fetch(path, {
+    const res = await fetch(API + path, {
       method, headers: { 'Content-Type': 'application/json', 'X-Participant-Token': S.token || '', 'X-Session-Id': S.sid || '' },
       body: method === 'GET' ? undefined : JSON.stringify(body || {})
     });
@@ -76,7 +78,7 @@
     flushing = true;
     const batch = queue.slice(0, 100);
     try {
-      const res = await fetch('/api/p/events', {
+      const res = await fetch(API + '/api/p/events', {
         method: 'POST', keepalive,
         headers: { 'Content-Type': 'application/json', 'X-Participant-Token': S.token, 'X-Session-Id': S.sid || '' },
         body: JSON.stringify({ events: batch })
@@ -204,7 +206,7 @@
   // ================= 頁面 =================
   routes.home = (el) => {
     const m = S.content.meta;
-    el.innerHTML = `<section class="hero"><img src="/icons/icon.svg" alt="" width="120" height="120"><h1>${esc(m.title)}</h1>
+    el.innerHTML = `<section class="hero"><img src="icons/icon.svg" alt="" width="120" height="120"><h1>${esc(m.title)}</h1>
       <p class="lead">用 8 個互動單元、生活案例與 AI 智慧助理，一步一步學會照顧血糖。</p></section>
       <div class="feature-grid">
         <div class="feature"><span class="ic">🔤</span><div><b>字大好讀</b><br><span class="muted">右上角可放大字體、切換高對比，也可以按「朗讀」聽內容。</span></div></div>
@@ -701,8 +703,8 @@
     $('#btn-fs-down').addEventListener('click', () => { const v = Math.max(1, store.get('fs', 2) - 1); store.set('fs', v); applyPrefs(); log({ event_type: 'font_size_changed', response: v }); });
     $('#btn-fs-up').addEventListener('click', () => { const v = Math.min(4, store.get('fs', 2) + 1); store.set('fs', v); applyPrefs(); log({ event_type: 'font_size_changed', response: v }); });
     $('#btn-contrast').addEventListener('click', () => { store.set('contrast', store.get('contrast') === 'high' ? 'normal' : 'high'); applyPrefs(); });
-    try { S.content = await (await fetch('/api/content')).json(); }
-    catch { $('#main').innerHTML = '<div class="card"><h1>無法載入內容</h1><p>請確認網路連線後重新整理頁面。</p></div>'; return; }
+    try { const cr = await fetch(API + '/api/content'); if (!cr.ok) throw new Error('HTTP ' + cr.status); S.content = await cr.json(); }
+    catch { $('#main').innerHTML = '<div class="card"><h1>無法載入內容</h1><p>請確認網路連線後重新整理頁面。伺服器若閒置較久，第一次開啟可能需要約 1 分鐘喚醒，請稍候再試。</p></div>'; return; }
     document.title = S.content.meta.shortTitle;
     if (S.token) {
       try { await resume(); }
@@ -712,7 +714,7 @@
       }
     }
     render();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
   }
   boot();
 })();

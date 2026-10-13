@@ -41,8 +41,10 @@ function ensureBootstrapAdmin() {
   if (generated) {
     const memo = path.join(__dirname, '..', '..', '_帳密備忘_勿上傳.md');
     const line = `\n## 糖尿病衛教平台 後臺管理者（${new Date().toLocaleString('zh-TW')} 自動產生）\n- 網址：/admin\n- 帳號：${user}\n- 密碼：${pw}\n- 首次登入後請至「帳號管理」修改密碼。\n`;
-    fs.appendFileSync(memo, line, 'utf8');
-    console.log(`[auth] 已建立管理者帳號「${user}」，初始密碼已寫入：${memo}`);
+    try { fs.appendFileSync(memo, line, 'utf8'); console.log(`[auth] 已建立管理者帳號「${user}」，初始密碼已寫入：${memo}`); }
+    catch { console.log(`[auth] 已建立管理者帳號「${user}」，備忘檔無法寫入`); }
+    // 雲端主機（如 Render）看不到備忘檔：只在主控台紀錄（僅帳號擁有者可見）顯示一次
+    if (process.env.RENDER) console.log(`[auth] 初始密碼：${pw}（請登入後立即修改）`);
   }
 }
 
