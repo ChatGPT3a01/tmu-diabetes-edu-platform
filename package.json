@@ -1,0 +1,21 @@
+{
+  "name": "tmu-dm-edu-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "生成式 AI 智慧助理輔助之成年人糖尿病互動衛教平台（MVP）",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node src/seed.js",
+    "reset": "node src/seed.js --reset-only"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "exceljs": "^4.4.0",
+    "express": "^4.22.3"
+  }
+}

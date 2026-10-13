@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-Hant-TW" data-fs="1">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>研究者後臺</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body class="admin">
+  <div id="login-view" class="login-wrap" hidden>
+    <form id="login-form" class="card login-card" autocomplete="on">
+      <img src="/icons/icon.svg" alt="" width="64" height="64">
+      <h1>研究者／管理者登入</h1>
+      <p class="muted">糖尿病互動衛教平台・研究 Dashboard（受試者無法存取）</p>
+      <div class="field"><label for="lu">帳號</label><input id="lu" class="input" name="username" autocomplete="username" required></div>
+      <div class="field"><label for="lp">密碼</label><input id="lp" class="input" type="password" name="password" autocomplete="current-password" required></div>
+      <p id="login-err" class="feedback bad" hidden></p>
+      <button class="btn block" type="submit">登入</button>
+    </form>
+  </div>
+
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <button id="nav-toggle" class="tool-btn nav-toggle" aria-label="開啟選單" aria-expanded="false">☰</button>
+      <a class="brand" href="#/overview"><img src="/icons/icon.svg" alt=""><span>研究者後臺</span></a>
+      <label class="sim-toggle"><input type="checkbox" id="inc-sim" checked> 含模擬資料</label>
+      <div class="tools">
+        <span id="who" class="pid-chip"></span>
+        <button id="logout" class="tool-btn">登出</button>
+      </div>
+    </header>
+    <div class="admin-layout">
+      <nav id="nav" class="admin-nav" aria-label="後臺選單">
+        <a href="#/overview">📊 總覽 Dashboard</a>
+        <a href="#/items">📝 題目正確率</a>
+        <a href="#/modules">📚 模組分析</a>
+        <a href="#/ai">🤖 AI 使用分析</a>
+        <a href="#/participants">👥 受試者與軌跡</a>
+        <a href="#/export">⬇️ 資料匯出</a>
+        <a href="#/account">🔑 我的帳號</a>
+        <div class="nav-admin">
+          <span class="nav-h">管理者功能</span>
+          <a href="#/users">👤 帳號管理</a>
+          <a href="#/content">✏️ 衛教內容管理</a>
+          <a href="#/system">⚙️ 系統與模擬資料</a>
+          <a href="#/audit">🧾 操作稽核紀錄</a>
+        </div>
+      </nav>
+      <main id="main" tabindex="-1"></main>
+    </div>
+  </div>
+  <script src="/vendor/chart.umd.js"></script>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>
