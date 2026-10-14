@@ -1,6 +1,6 @@
 // 受試者端核心邏輯（路由與模擬資料共用，確保兩者產生的資料格式一致）
 const crypto = require('crypto');
-const { get, run, all, insertEvent, now } = require('./db');
+const { get, run, all, insertEvent, now, twDay } = require('./db');
 const content = require('./content');
 const aiSvc = require('./ai');
 
@@ -9,11 +9,12 @@ const EVENT_TYPES = new Set([
   'question_answered', 'feedback_viewed', 'ai_question_submitted', 'ai_response_viewed', 'module_completed',
   'posttest_started', 'posttest_answer', 'posttest_completed', 'questionnaire_completed', 'session_completed',
   // 擴充事件
-  'session_started', 'demographics_completed', 'page_view', 'widget_interaction', 'font_size_changed', 'tts_used'
+  'session_started', 'demographics_completed', 'page_view', 'widget_interaction', 'font_size_changed', 'tts_used',
+  'nav_click', 'retake_started', 'retake_completed'
 ]);
 // 只允許由伺服器端產生的事件（避免前端偽造分數）
 const SERVER_ONLY = new Set(['consent_completed', 'pretest_answer', 'pretest_completed', 'posttest_answer', 'posttest_completed',
-  'ai_question_submitted', 'questionnaire_completed', 'session_completed', 'demographics_completed']);
+  'ai_question_submitted', 'questionnaire_completed', 'session_completed', 'demographics_completed', 'retake_completed']);
 
 const uid = () => crypto.randomUUID();
 
@@ -30,15 +31,16 @@ function createParticipant({ code, deviceType, userAgent, isSimulated = 0, ts })
   const t = ts || now();
   let pid = (code || '').trim();
   if (pid) {
-    if (!CODE_RE.test(pid)) { const e = new Error('研究編號格式不正確（限英數字、- 或 _，3–24 字）'); e.status = 400; throw e; }
-    if (get('SELECT 1 FROM participants WHERE participant_id = ?', pid)) { const e = new Error('此研究編號已被使用，若是您本人請用「繼續上次進度」'); e.status = 409; throw e; }
+    if (!CODE_RE.test(pid)) { const e = new Error('編號格式不正確（限英數字、- 或 _，3–24 字）'); e.status = 400; throw e; }
+    if (get('SELECT 1 FROM participants WHERE participant_id = ?', pid)) { const e = new Error('此編號已登入過；若是您本人，請改按「繼續上次進度」並輸入繼續碼'); e.status = 409; throw e; }
   } else pid = nextParticipantId();
   const token = crypto.randomBytes(24).toString('base64url');
   const resume_code = makeResumeCode();
   run('INSERT INTO participants (participant_id, token, created_at, consent_at, device_type, is_simulated, state, resume_code) VALUES (?,?,?,?,?,?,?,?)',
     pid, token, t, t, deviceType || null, isSimulated ? 1 : 0, JSON.stringify({ stage: 'demographics' }), resume_code);
   const session_id = startSession(pid, deviceType, userAgent, t);
-  logEvent(pid, session_id, { event_type: 'consent_completed', response: 'agree' }, t, true);
+  // 同意書改為現場紙本簽署；仍記錄 consent_completed 以維持資料欄位一致
+  logEvent(pid, session_id, { event_type: 'consent_completed', response: 'paper_consent' }, t, true);
   return { participant_id: pid, token, session_id, resume_code };
 }
 
@@ -129,7 +131,9 @@ function recordTestAnswer(pid, sid, { phase, item_id, response, time_on_task, at
 
 function scoreTest(pid, phase) {
   const c = content.load();
-  const rows = all('SELECT item_id, correct FROM test_responses WHERE participant_id = ? AND phase = ?', pid, phase);
+  // 只計算目前題庫的題目（舊版 24 題時期的作答不納入新版 10 題計分）
+  const ids = new Set(c.knowledgeTest.items.map(i => i.id));
+  const rows = all('SELECT item_id, correct FROM test_responses WHERE participant_id = ? AND phase = ?', pid, phase).filter(r => ids.has(r.item_id));
   const total = c.knowledgeTest.items.length;
   const nCorrect = rows.filter(r => r.correct === 1).length;
   return { answered: rows.length, total, nCorrect, score: Math.round(nCorrect / total * 1000) / 10 };
@@ -147,6 +151,25 @@ function completeTest(pid, sid, phase, ts) {
   return s;
 }
 
+// 每位受試者各量表的總分／平均（前後測）
+function scaleScores(pid, c = content.load()) {
+  const rows = all('SELECT instrument, item_id, value FROM questionnaires WHERE participant_id = ?', pid);
+  const out = {};
+  for (const sid of ['pre', 'post', 'sat']) {
+    const sv = content.survey(sid, c); if (!sv) continue;
+    for (const d of sv.defs) {
+      const inst = content.storedInstrument(sid, d);
+      const vals = d.items.map(it => rows.find(r => r.instrument === inst && r.item_id === it.id)).filter(Boolean).map(r => Number(r.value)).filter(Number.isFinite);
+      const complete = vals.length === d.items.length;
+      const o = out[d.instrument] = out[d.instrument] || { title: d.title, n_items: d.items.length };
+      const phase = sid === 'sat' ? 'post' : sid;
+      o[phase + '_sum'] = complete ? vals.reduce((a, b) => a + b, 0) : null;
+      o[phase + '_mean'] = complete ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100 : null;
+    }
+  }
+  return out;
+}
+
 function learningSummary(pid) {
   const c = content.load();
   const p = get('SELECT pretest_score, posttest_score FROM participants WHERE participant_id = ?', pid);
@@ -157,12 +180,59 @@ function learningSummary(pid) {
     const post = rows.filter(r => r.phase === 'post' && ids.includes(r.item_id));
     return { module_id: m.id, title: m.title, icon: m.icon, n: ids.length,
       pre_correct: pre.filter(r => r.correct).length, post_correct: post.filter(r => r.correct).length };
-  });
+  }).filter(d => d.n > 0);
   const ai = get('SELECT COUNT(*) n FROM ai_interactions WHERE participant_id = ?', pid).n;
   const modulesDone = get("SELECT COUNT(DISTINCT module_id) n FROM events WHERE participant_id = ? AND event_type = 'module_completed'", pid).n;
+  const retakes = all('SELECT attempt_no, score, n_correct, total, completed_at FROM test_retakes WHERE participant_id = ? ORDER BY attempt_no', pid);
   return { pretest_score: p.pretest_score, posttest_score: p.posttest_score,
     gain: p.pretest_score != null && p.posttest_score != null ? Math.round((p.posttest_score - p.pretest_score) * 10) / 10 : null,
-    domains, ai_questions: ai, modules_completed: modulesDone };
+    domains, ai_questions: ai, modules_completed: modulesDone, retakes, scales: scaleScores(pid, c) };
+}
+
+// 與「大家」比較：真實受試者（不含本人）不足 3 位時改用含示範（模擬）資料的平均，並標示
+function groupComparison(pid) {
+  const c = content.load();
+  const pick = sim => all(`SELECT participant_id, pretest_score, posttest_score FROM participants WHERE posttest_score IS NOT NULL AND pretest_score IS NOT NULL ${sim ? '' : 'AND is_simulated = 0'}`);
+  let rows = pick(false), simulated = false;
+  if (rows.filter(r => r.participant_id !== pid).length < 3) { rows = pick(true); simulated = true; }
+  const mean = a => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 10) / 10 : null;
+  const scales = {};
+  const per = rows.map(r => scaleScores(r.participant_id, c));
+  for (const k of ['health_literacy', 'anxiety', 'learning_se', 'self_efficacy']) {
+    scales[k] = {
+      pre_mean: mean(per.map(s => s[k] && s[k].pre_mean).filter(x => x != null)),
+      post_mean: mean(per.map(s => s[k] && s[k].post_mean).filter(x => x != null))
+    };
+  }
+  const ids = new Set(rows.map(r => r.participant_id));
+  const retakeBest = all('SELECT participant_id, MAX(score) s FROM test_retakes GROUP BY participant_id').filter(r => ids.has(r.participant_id));
+  return { n: rows.length, simulated, pretest_mean: mean(rows.map(r => r.pretest_score)), posttest_mean: mean(rows.map(r => r.posttest_score)),
+    retake_mean: mean(retakeBest.map(r => r.s)), retake_n: retakeBest.length, scales };
+}
+
+// 完成全部流程後的「知識測驗再測」：不覆蓋正式後測分數，另存 test_retakes
+function retakeTest(pid, sid, { answers, time_on_task }, ts) {
+  const p = get('SELECT completed_at FROM participants WHERE participant_id = ?', pid);
+  if (!p.completed_at) { const e = new Error('完成全部學習後才能再測'); e.status = 403; throw e; }
+  const c = content.load();
+  const items = c.knowledgeTest.items;
+  const clean = {};
+  for (const it of items) {
+    const r = Number(answers && answers[it.id]);
+    if (!Number.isInteger(r) || r < 0 || r >= it.options.length) { const e = new Error('尚有題目未作答'); e.status = 400; throw e; }
+    clean[it.id] = r;
+  }
+  const nCorrect = items.filter(it => clean[it.id] === it.answer).length;
+  const score = Math.round(nCorrect / items.length * 1000) / 10;
+  const attempt = (get('SELECT MAX(attempt_no) m FROM test_retakes WHERE participant_id = ?', pid).m || 0) + 1;
+  const t = ts || now();
+  run('INSERT INTO test_retakes (participant_id, attempt_no, score, n_correct, total, answers, time_on_task, completed_at) VALUES (?,?,?,?,?,?,?,?)',
+    pid, attempt, score, nCorrect, items.length, JSON.stringify(clean), num(time_on_task), t);
+  logEvent(pid, sid, { event_type: 'retake_completed', item_id: 'retake_' + attempt, response: `${nCorrect}/${items.length}`, time_on_task, extra: { attempt, score } }, t, true);
+  return {
+    attempt, score, n_correct: nCorrect, total: items.length,
+    review: items.map(it => ({ item_id: it.id, stem: it.stem, options: it.options, answer: it.answer, response: clean[it.id], correct: clean[it.id] === it.answer }))
+  };
 }
 
 async function askAI(pid, sid, { question, module_id }, ts, overrideAnswer) {
@@ -186,24 +256,48 @@ function markAIViewed(pid, sid, interaction_id, time_on_task, ts) {
   }
 }
 
-function saveQuestionnaire(pid, sid, instrument, answers, ts) {
+// 問卷組合（pre／post／sat）一次送出；各量表分別存成 instrument（前後測加 _pre／_post）
+function saveSurvey(pid, sid, surveyId, answers, ts) {
   const c = content.load();
-  const def = instrument === 'self_efficacy' ? c.selfEfficacy : instrument === 'satisfaction' ? c.satisfaction : null;
-  if (!def) { const e = new Error('問卷類型錯誤'); e.status = 400; throw e; }
-  const t = ts || now();
-  const missing = def.items.filter(i => ![1, 2, 3, 4, 5].includes(Number(answers?.[i.id])));
+  const sv = content.survey(surveyId, c);
+  if (!sv) { const e = new Error('問卷類型錯誤'); e.status = 400; throw e; }
+  const p = get('SELECT pretest_score, posttest_score FROM participants WHERE participant_id = ?', pid);
+  if (surveyId === 'pre' && p.pretest_score == null) { const e = new Error('請先完成知識前測'); e.status = 409; throw e; }
+  if (surveyId !== 'pre' && p.posttest_score == null) { const e = new Error('請先完成知識後測'); e.status = 409; throw e; }
+  if (surveyId === 'sat' && !surveyDone(pid, 'post')) { const e = new Error('請先完成後測問卷'); e.status = 409; throw e; }
+  if (surveyDone(pid, surveyId)) { const e = new Error('此問卷已完成'); e.status = 409; throw e; }
+  const missing = [];
+  for (const d of sv.defs) for (const i of d.items) if (![1, 2, 3, 4, 5].includes(Number(answers && answers[i.id]))) missing.push(i.id);
   if (missing.length) { const e = new Error(`尚有 ${missing.length} 題未作答`); e.status = 400; throw e; }
-  const up = (id, v) => run(`INSERT INTO questionnaires (participant_id, instrument, item_id, value, created_at) VALUES (?,?,?,?,?)
-    ON CONFLICT(participant_id, instrument, item_id) DO UPDATE SET value=excluded.value, created_at=excluded.created_at`, pid, instrument, id, String(v), t);
-  for (const i of def.items) up(i.id, Number(answers[i.id]));
-  for (const o of def.open || []) if (answers?.[o.id]) up(o.id, String(answers[o.id]).slice(0, 1000));
-  logEvent(pid, sid, { event_type: 'questionnaire_completed', item_id: instrument, response: instrument }, t, true);
+  const t = ts || now();
+  const up = (inst, id, v) => run(`INSERT INTO questionnaires (participant_id, instrument, item_id, value, created_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(participant_id, instrument, item_id) DO UPDATE SET value=excluded.value, created_at=excluded.created_at`, pid, inst, id, String(v), t);
+  for (const d of sv.defs) {
+    const inst = content.storedInstrument(surveyId, d);
+    for (const i of d.items) up(inst, i.id, Number(answers[i.id]));
+    for (const o of d.open || []) if (answers && answers[o.id]) up(inst, o.id, String(answers[o.id]).slice(0, 1000));
+  }
+  logEvent(pid, sid, { event_type: 'questionnaire_completed', item_id: surveyId + '_survey', response: sv.defs.map(d => content.storedInstrument(surveyId, d)).join(';') }, t, true);
+}
+function surveyDone(pid, surveyId) {
+  return !!get("SELECT 1 FROM events WHERE participant_id = ? AND event_type = 'questionnaire_completed' AND item_id = ?", pid, surveyId + '_survey');
+}
+function surveysDone(pid) { return ['pre', 'post', 'sat'].filter(s => surveyDone(pid, s)); }
+
+// 每日瀏覽人次（匿名訪客 id，不需登入）
+const VID_RE = /^[A-Za-z0-9_-]{8,40}$/;
+function recordVisit(vid, ts) {
+  if (!VID_RE.test(String(vid || ''))) { const e = new Error('visitor id 格式錯誤'); e.status = 400; throw e; }
+  const t = ts || now();
+  run(`INSERT INTO visits (day, visitor_id, views, first_at, last_at) VALUES (?,?,1,?,?)
+    ON CONFLICT(day, visitor_id) DO UPDATE SET views = views + 1, last_at = excluded.last_at`, twDay(t), vid, t, t);
 }
 
 function completeSession(pid, sid, ts) {
   const t = ts || now();
   const p = get('SELECT completed_at, posttest_score FROM participants WHERE participant_id = ?', pid);
   if (p.posttest_score == null) { const e = new Error('尚未完成後測'); e.status = 400; throw e; }
+  if (!surveyDone(pid, 'sat')) { const e = new Error('尚未完成滿意度問卷'); e.status = 400; throw e; }
   if (!p.completed_at) {
     run('UPDATE participants SET completed_at = ?, status = ? WHERE participant_id = ?', t, 'completed', pid);
     logEvent(pid, sid, { event_type: 'session_completed' }, t, true);
@@ -212,5 +306,6 @@ function completeSession(pid, sid, ts) {
 
 module.exports = {
   EVENT_TYPES, createParticipant, byResumeCode, startSession, byToken, sessionBelongs, logEvent, saveDemographics, recordTestAnswer,
-  completeTest, scoreTest, learningSummary, askAI, markAIViewed, saveQuestionnaire, completeSession
+  completeTest, scoreTest, learningSummary, scaleScores, groupComparison, retakeTest, askAI, markAIViewed,
+  saveSurvey, surveyDone, surveysDone, recordVisit, completeSession
 };

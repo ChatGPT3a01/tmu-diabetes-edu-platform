@@ -9,13 +9,14 @@
 //   s/<sid>              研究者登入 session
 //   a/<時間>_<id>_<亂數>  操作稽核紀錄（只新增）
 //   content/current、content/backup/<stamp>   後臺修改後的衛教內容與備份
+//   v/<臺灣日期>/<訪客id>  每日瀏覽人次（匿名訪客，每人每天一筆）
 const crypto = require('crypto');
-const { db, all } = require('./db');
+const { db, all, twDay } = require('./db');
 const content = require('./content');
 const auth = require('./auth');
 
-const P_TABLES = ['participants', 'sessions', 'events', 'test_responses', 'ai_interactions', 'questionnaires'];
-const ALL_TABLES = [...P_TABLES, 'users', 'admin_sessions', 'audit_log'];
+const P_TABLES = ['participants', 'sessions', 'events', 'test_responses', 'ai_interactions', 'questionnaires', 'test_retakes'];
+const ALL_TABLES = [...P_TABLES, 'users', 'admin_sessions', 'audit_log', 'visits'];
 const PID_RE = /^[A-Za-z0-9_-]{3,24}$/;
 const colsCache = {};
 const cols = t => (colsCache[t] = colsCache[t] || all(`PRAGMA table_info(${t})`).map(c => c.name));
@@ -36,6 +37,7 @@ function insertRows(t, rows) {
   const st = db.prepare(`INSERT INTO ${t} (${c.join(',')}) VALUES (${c.map(() => '?').join(',')})`);
   for (const r of rows) st.run(...c.map(k => (r[k] === undefined ? null : r[k])));
 }
+function normJSON(data) { const o = {}; for (const t of P_TABLES) o[t] = data[t] || []; return JSON.stringify(o); }
 function bundle(pid) {
   const b = {};
   for (const t of P_TABLES) b[t] = all(`SELECT * FROM ${t} WHERE participant_id = ? ORDER BY rowid`, pid);
@@ -64,7 +66,7 @@ async function loadParticipant(pid) {
   const r = await getJSON(key);
   if (!r) return null;
   for (const t of P_TABLES) insertRows(t, r.data[t]);
-  S.loaded.set(key, { etag: r.etag, json: JSON.stringify(r.data), token: r.data.participants?.[0]?.token });
+  S.loaded.set(key, { etag: r.etag, json: normJSON(r.data), token: r.data.participants?.[0]?.token });
   return pid;
 }
 
@@ -74,7 +76,7 @@ async function loadAllParticipants() {
   keys.forEach((k, i) => {
     const r = recs[i]; if (!r) return;
     for (const t of P_TABLES) insertRows(t, r.data[t]);
-    S.loaded.set(k, { etag: r.etag, json: JSON.stringify(r.data), token: r.data.participants?.[0]?.token });
+    S.loaded.set(k, { etag: r.etag, json: normJSON(r.data), token: r.data.participants?.[0]?.token });
   });
 }
 
@@ -116,12 +118,23 @@ async function begin(store, req) {
     }
     const needsData = !/^\/api\/admin\/(login|logout|me|users|audit)(\/|$)/.test(path) || /^\/api\/admin\/me\/password/.test(path);
     if (needsData) await loadAllParticipants();
+    if (path === '/api/admin/dashboard' || path === '/api/admin/simulated') await loadKeyed('v/', 'visits'); // 清除模擬資料時一併刪除 SIMV 瀏覽紀錄
     if (path.startsWith('/api/admin/audit')) {
       const keys = (await listKeys('a/')).sort().slice(-300);
       const recs = await parallel(keys, k => getJSON(k));
       insertRows('audit_log', recs.filter(Boolean).map(r => r.data));
     }
     if (path === '/api/admin/content') content.setBlobBackups((await listKeys('content/backup/')).map(k => k.slice('content/backup/'.length)));
+  } else if (path === '/api/visit') {
+    const vid = String(req.body?.vid || '');
+    if (/^[A-Za-z0-9_-]{8,40}$/.test(vid)) {
+      const key = `v/${twDay()}/${vid}`;
+      const r = await getJSON(key);
+      if (r) { insertRows('visits', [r.data]); S.loaded.set(key, { etag: r.etag, json: JSON.stringify(r.data) }); }
+    }
+  } else if (path === '/api/p/compare') {
+    if (idx?.pid) await loadParticipant(idx.pid);
+    await loadAllParticipants();
   } else if (path === '/api/p/start') {
     await loadParticipantStubs();
   } else if (path === '/api/p/recover') {
@@ -148,6 +161,7 @@ async function commit() {
   }
   for (const u of all('SELECT * FROM users')) cur.set('u/' + u.username, u);
   for (const s of all('SELECT * FROM admin_sessions')) cur.set('s/' + s.sid, s);
+  for (const v of all('SELECT * FROM visits')) cur.set(`v/${v.day}/${v.visitor_id}`, v);
 
   // 新受試者先佔用研究編號（onlyIfNew），撞號時整個請求重跑、取下一個編號
   const ops = [];

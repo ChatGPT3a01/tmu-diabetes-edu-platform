@@ -24,6 +24,26 @@ async function simulate(n = 30, seed = Date.now()) {
   const R = rng(seed);
   const pick = a => a[Math.floor(R() * a.length)];
   const clamp = x => Math.max(0.05, Math.min(0.97, x));
+  const lik = x => Math.max(1, Math.min(5, Math.round(x + (R() - 0.5) * 1.6)));
+  // 問卷：依量表給基準分；後測依學習程度略有改善（焦慮下降）
+  const surveyAnswers = (sid, base) => {
+    const a = {};
+    for (const d of content.survey(sid, c).defs) {
+      const b = base[d.instrument] ?? 3.5;
+      for (const it of d.items) a[it.id] = it.sus === 'neg' ? 6 - lik(b) : lik(b);
+    }
+    return a;
+  };
+  // 示範用每日瀏覽：訪客 id 以 SIMV 開頭，清除模擬資料時一併刪除
+  for (let d = 0; d < 30; d++) {
+    const k = 2 + Math.floor(R() * 9);
+    for (let j = 0; j < k; j++) {
+      const t = new Date(Date.now() - d * 864e5 - Math.floor(R() * 10 * 36e5)).toISOString();
+      const vid = 'SIMV' + Math.floor(R() * 1e9).toString(36).padStart(6, '0');
+      const views = 1 + Math.floor(R() * 4);
+      for (let v = 0; v < views; v++) P.recordVisit(vid, t);
+    }
+  }
   const existing = all("SELECT participant_id FROM participants WHERE participant_id LIKE 'SIM%'");
   let start = existing.reduce((m, r) => Math.max(m, Number(r.participant_id.slice(3)) || 0), 0);
   const created = [];
@@ -54,6 +74,8 @@ async function simulate(n = 30, seed = Date.now()) {
       P.recordTestAnswer(pid, sid, { phase: 'pre', item_id: it.id, response: ok ? it.answer : pick(wrong), time_on_task: Math.round(sec) }, ts(sec));
     }
     P.completeTest(pid, sid, 'pre', ts(3));
+    const preBase = { health_literacy: 2.6 + ability * 1.5, anxiety: 3.6 - ability * 1.2, learning_se: 2.8 + ability * 1.4, self_efficacy: 2.6 + ability * 1.6 };
+    P.saveSurvey(pid, sid, 'pre', surveyAnswers('pre', preBase), ts(150 + R() * 120));
     run('UPDATE participants SET state = ? WHERE participant_id = ?', JSON.stringify({ stage: 'modules' }), pid);
     if (dropout === 0) continue;
 
@@ -111,19 +133,24 @@ async function simulate(n = 30, seed = Date.now()) {
     P.completeTest(pid, sid, 'post', ts(3));
     if (dropout === 3) continue;
 
-    const se = {}; for (const it of c.selfEfficacy.items) se[it.id] = Math.max(1, Math.min(5, Math.round(2.5 + postAbility * 2 + (R() - 0.5) * 1.6)));
-    P.saveQuestionnaire(pid, sid, 'self_efficacy', se, ts(120));
-    const sat = {};
-    for (const it of c.satisfaction.items) {
-      const base = 3.6 + (R() - 0.5) * 1.4;
-      const v = it.sus === 'neg' ? 6 - base : base;
-      sat[it.id] = Math.max(1, Math.min(5, Math.round(v)));
-    }
+    const lift = postAbility - ability;
+    P.saveSurvey(pid, sid, 'post', surveyAnswers('post', {
+      health_literacy: preBase.health_literacy + lift * 2.5, anxiety: preBase.anxiety - lift * 2,
+      learning_se: preBase.learning_se + lift * 2.5, self_efficacy: preBase.self_efficacy + lift * 3
+    }), ts(150 + R() * 120));
+    const sat = surveyAnswers('sat', { edu_satisfaction: 3.7 + R() * 0.8, satisfaction: 3.6 + (R() - 0.5) * 1.4 });
     if (R() < 0.4) sat.OPEN01 = pick(['低血糖的模擬很實用', 'AI 回答很快', '字很大很清楚', '餐盤遊戲很好玩']);
     if (R() < 0.3) sat.OPEN02 = pick(['希望有語音輸入', '題目有點多', '希望可以分享給家人']);
-    P.saveQuestionnaire(pid, sid, 'satisfaction', sat, ts(150));
+    if (R() < 0.4) sat.ESOPEN01 = pick(['藥物和胰島素的部分最有幫助', '案例很貼近生活', '希望多一點飲食的例子']);
+    P.saveSurvey(pid, sid, 'sat', sat, ts(180));
     P.completeSession(pid, sid, ts(10));
     run('UPDATE participants SET state = ? WHERE participant_id = ?', JSON.stringify({ stage: 'done' }), pid);
+    // 部分人完成後會再測一次知識測驗
+    if (R() < 0.35) {
+      const ans = {}; const ra = clamp(postAbility + 0.08);
+      for (const it of c.knowledgeTest.items) ans[it.id] = R() < ra ? it.answer : pick([0, 1, 2, 3].filter(x => x !== it.answer));
+      P.retakeTest(pid, sid, { answers: ans, time_on_task: Math.round(60 + R() * 120) }, ts(600 + R() * 3600));
+    }
   }
   return created;
 }
@@ -132,6 +159,7 @@ function clearSimulated() {
   return tx(() => {
     const n = get('SELECT COUNT(*) n FROM participants WHERE is_simulated = 1').n;
     run('DELETE FROM participants WHERE is_simulated = 1');
+    run("DELETE FROM visits WHERE visitor_id LIKE 'SIMV%'");
     return n;
   });
 }

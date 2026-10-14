@@ -31,7 +31,7 @@ app.use((req, res, next) => {
 // 跨網域（前端放 GitHub Pages、後端放 Render）：只對白名單網域開放「受試者 API」；研究者後臺 API 一律不開放
 // ALLOWED_ORIGINS=https://chatgpt3a01.github.io,http://localhost:8080（逗號分隔）
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean));
-app.use(['/api/p', '/api/content', '/api/health'], (req, res, next) => {
+app.use(['/api/p', '/api/content', '/api/health', '/api/visit'], (req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -51,9 +51,15 @@ const deviceOf = ua => /iPad|Tablet|(Android(?!.*Mobile))/i.test(ua || '') ? 'ta
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString(), ai: aiSvc.providerInfo().provider }));
 app.get('/api/content', (req, res) => res.json(content.publicContent()));
 
+// 每日瀏覽人次：首頁載入時送出匿名訪客 id（存在瀏覽器 localStorage，與受試者編號無關）
+app.post('/api/visit', (req, res) => {
+  P.recordVisit(req.body?.vid);
+  res.json({ ok: true });
+});
+
+// 登入（建立編號）：研究說明與同意書改為現場紙本，平台不再顯示同意頁
 app.post('/api/p/start', (req, res, next) => {
   try {
-    if (req.body?.consent !== true) return res.status(400).json({ error: '請先勾選同意事項' });
     const ua = req.headers['user-agent'];
     const deviceType = ['mobile', 'tablet', 'desktop'].includes(req.body.device_type) ? req.body.device_type : deviceOf(ua);
     const r = P.createParticipant({ code: req.body.code, deviceType, userAgent: ua });
@@ -95,6 +101,8 @@ app.post('/api/p/resume', participantAuth, (req, res) => {
     participant_id: req.p.participant_id, resume_code: req.p.resume_code, session_id, state: JSON.parse(req.p.state || '{}'),
     modules_completed: done, has_demographics: !!req.p.demographics,
     pretest_done: req.p.pretest_score != null, posttest_done: req.p.posttest_score != null,
+    pretest_score: req.p.pretest_score, posttest_score: req.p.posttest_score,
+    surveys_done: P.surveysDone(req.p.participant_id),
     completed: !!req.p.completed_at, answered
   });
 });
@@ -129,8 +137,14 @@ app.post('/api/p/test/answer', participantAuth, (req, res) => {
 app.post('/api/p/test/complete', participantAuth, (req, res) => {
   const phase = req.body?.phase;
   const s = P.completeTest(req.p.participant_id, req.sid, phase);
-  if (phase === 'pre') return res.json({ ok: true }); // 前測完成後不顯示分數
-  res.json({ ok: true, summary: P.learningSummary(req.p.participant_id), score: s.score });
+  // 依專題需求：前測、後測完成後都顯示分數（不顯示逐題正誤，避免影響後測）
+  const pre = phase === 'post' ? get('SELECT pretest_score v FROM participants WHERE participant_id = ?', req.p.participant_id).v : null;
+  res.json({ ok: true, score: s.score, n_correct: s.nCorrect, total: s.total, pretest_score: pre });
+});
+
+// 完成全部學習後可再測知識測驗（不覆蓋正式後測）
+app.post('/api/p/test/retake', participantAuth, (req, res) => {
+  res.json(P.retakeTest(req.p.participant_id, req.sid, req.body || {}));
 });
 
 app.post('/api/p/ai', participantAuth, wrap(async (req, res) => {
@@ -143,9 +157,9 @@ app.post('/api/p/ai/viewed', participantAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/p/questionnaire', participantAuth, (req, res) => {
-  P.saveQuestionnaire(req.p.participant_id, req.sid, req.body?.instrument, req.body?.answers || {});
-  res.json({ ok: true });
+app.post('/api/p/survey', participantAuth, (req, res) => {
+  P.saveSurvey(req.p.participant_id, req.sid, req.body?.survey, req.body?.answers || {});
+  res.json({ ok: true, surveys_done: P.surveysDone(req.p.participant_id) });
 });
 
 app.post('/api/p/complete', participantAuth, (req, res) => {
@@ -156,6 +170,12 @@ app.post('/api/p/complete', participantAuth, (req, res) => {
 app.get('/api/p/summary', participantAuth, (req, res) => {
   if (req.p.posttest_score == null) return res.status(403).json({ error: '完成後測後才能查看學習成果' });
   res.json(P.learningSummary(req.p.participant_id));
+});
+
+// 學習成果頁的「我 vs 大家」比較趨勢圖（只回傳群體平均，不含任何個人資料）
+app.get('/api/p/compare', participantAuth, (req, res) => {
+  if (req.p.posttest_score == null) return res.status(403).json({ error: '完成後測後才能查看比較' });
+  res.json(P.groupComparison(req.p.participant_id));
 });
 
 // ===================== 研究者／管理者 API =====================
@@ -179,6 +199,8 @@ const R_ADMIN = auth.requireRole('admin');
 const incSim = req => req.query.include_sim !== '0';
 
 app.get('/api/admin/dashboard', R_ANY, (req, res) => res.json(stats.dashboard(incSim(req))));
+app.get('/api/admin/ai-keywords', R_ANY, (req, res) => res.json(stats.aiKeywords(incSim(req))));
+app.get('/api/admin/lsa', R_ANY, (req, res) => res.json(stats.lagSequential(incSim(req), { module: req.query.module || '', scope: req.query.scope || 'all' })));
 app.get('/api/admin/participants', R_ANY, (req, res) => res.json(stats.participantList(incSim(req))));
 app.get('/api/admin/participants/:id', R_ANY, (req, res) => {
   const d = stats.participantDetail(req.params.id);

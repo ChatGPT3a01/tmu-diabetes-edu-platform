@@ -11,17 +11,18 @@
     del(k) { try { localStorage.removeItem('dm_' + k); } catch { } }
   };
 
+  // 研究說明與同意書改為現場紙本，平台從「登入」開始
   const STAGES = [
-    { id: 'consent', label: '研究說明與同意' }, { id: 'demographics', label: '基本資料' }, { id: 'pretest', label: '知識前測' },
+    { id: 'demographics', label: '基本資料' }, { id: 'pretest', label: '知識前測' }, { id: 'presurvey', label: '前測問卷' },
     { id: 'modules', label: '8 個衛教模組' }, { id: 'ai', label: 'AI 智慧助理' }, { id: 'posttest', label: '知識後測' },
-    { id: 'se', label: '自我效能問卷' }, { id: 'sat', label: '滿意度問卷' }, { id: 'done', label: '完成' }
+    { id: 'postsurvey', label: '後測問卷' }, { id: 'sat', label: '滿意度問卷' }, { id: 'done', label: '完成' }
   ];
   const MOD_STEPS = ['學習目標', '圖文衛教', '生活案例', '互動問題', 'AI 延伸提問', '完成單元'];
 
   const S = {
     content: null, token: store.get('token'), pid: store.get('pid'), sid: null, resumeCode: store.get('rc'),
-    state: { stage: 'consent', mod: {} }, modulesDone: new Set(), pretestDone: false, posttestDone: false, completed: false,
-    hasDemo: false, answered: { pre: {}, post: {} }, chats: {}
+    state: { stage: 'demographics', mod: {} }, modulesDone: new Set(), pretestDone: false, posttestDone: false, completed: false,
+    hasDemo: false, answered: { pre: {}, post: {} }, chats: {}, surveys: new Set(), scores: {}
   };
 
   // ---------- AWD：依裝置調整版面結構 ----------
@@ -127,42 +128,60 @@
 
   // ---------- 階段與進度 ----------
   function allowedStage() {
-    if (!S.token) return 'consent';
+    if (!S.token) return 'login';
     if (!S.hasDemo) return 'demographics';
     if (!S.pretestDone) return 'pretest';
+    if (!S.surveys.has('pre')) return 'presurvey';
     if (S.modulesDone.size < 8) return 'modules';
     if (!S.state.aiDone) return 'ai';
     if (!S.posttestDone) return 'posttest';
-    if (!S.state.seDone) return 'se';
-    if (!S.state.satDone) return 'sat';
+    if (!S.surveys.has('post')) return 'postsurvey';
+    if (!S.surveys.has('sat')) return 'sat';
     return 'done';
   }
   function progressPct() {
     let p = 0;
-    if (S.token) p += 3;
+    if (S.token) p += 2;
     if (S.hasDemo) p += 4;
-    if (S.pretestDone) p += 13;
-    p += S.modulesDone.size * 6;
-    if (S.state.aiDone) p += 5;
-    if (S.posttestDone) p += 13;
-    if (S.state.seDone) p += 7;
-    if (S.state.satDone) p += 7;
-    return Math.min(100, p);
+    if (S.pretestDone) p += 10;
+    if (S.surveys.has('pre')) p += 8;
+    p += S.modulesDone.size * 5;
+    if (S.state.aiDone) p += 4;
+    if (S.posttestDone) p += 10;
+    if (S.surveys.has('post')) p += 8;
+    if (S.surveys.has('sat')) p += 14;
+    return S.completed ? 100 : Math.min(100, p);
+  }
+  // 側欄步驟可點選的目的地：學習中可隨時回單元列表與 AI；完成後可再測知識測驗、查看成果
+  function stepLink(id) {
+    const learning = S.pretestDone && S.surveys.has('pre');
+    if (id === 'modules' && learning) return '#/hub';
+    if (id === 'ai' && learning) return '#/ai';
+    if (id === 'posttest' && S.completed) return '#/retake';
+    if (id === 'done' && S.completed) return '#/done';
+    return null;
   }
   function renderProgress() {
     const pct = progressPct();
     const cur = allowedStage();
     const ci = STAGES.findIndex(s => s.id === cur);
+    const view = location.hash.replace(/^#\/?/, '').split('/')[0];
     const steps = STAGES.map((s, i) => {
-      const extra = s.id === 'modules' && S.token ? `（${S.modulesDone.size}/8）` : '';
+      const extra = s.id === 'modules' && S.token ? `（${S.modulesDone.size}/8）` : s.id === 'posttest' && S.completed ? '（可再測）' : '';
       const cls = i < ci || cur === 'done' && s.id === 'done' ? 'done' : i === ci ? 'current' : '';
-      return `<li class="${cls}" ${i === ci ? 'aria-current="step"' : ''}><span class="dot">${cls === 'done' ? '✓' : i + 1}</span>${s.label}${extra}</li>`;
+      const href = stepLink(s.id);
+      const here = href && href === '#/' + view;
+      const inner = `<span class="dot">${cls === 'done' ? '✓' : i + 1}</span>${s.label}${extra}`;
+      return `<li class="${cls}${href ? ' link' : ''}${here ? ' here' : ''}" ${i === ci ? 'aria-current="step"' : ''}>${href && !here ? `<a href="${href}" data-nav="${s.id}">${inner}</a>` : inner}</li>`;
     }).join('');
-    const label = `<div class="progress-label"><span>整體學習進度：${STAGES[ci].label}</span><b>${pct}%</b></div>
+    const label = `<div class="progress-label"><span>整體學習進度：${cur === 'login' ? '登入' : STAGES[ci].label}</span><b>${pct}%</b></div>
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="整體學習進度"><i style="width:${pct}%"></i></div>`;
+    // 登入前不顯示進度
+    $('#progress-mobile').hidden = !S.token; $('#side').hidden = !S.token;
     $('#progress-mobile').innerHTML = label;
-    $('#side').innerHTML = `<div class="card">${label}</div><div class="card"><ol class="stepper">${steps}</ol></div>`;
+    $('#side').innerHTML = `<div class="card">${label}</div><div class="card"><ol class="stepper">${steps}</ol>${S.pretestDone && S.surveys.has('pre') ? '<p class="muted step-hint">可點選有底線的項目切換頁面</p>' : ''}</div>`;
     $('#pid-chip').textContent = S.pid ? `編號 ${S.pid}` : '';
+    $$('[data-nav]').forEach(a => a.addEventListener('click', () => log({ event_type: 'nav_click', item_id: a.dataset.nav })));
     $('#pid-chip').hidden = !S.pid;
   }
 
@@ -172,6 +191,7 @@
   function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
   window.addEventListener('hashchange', render);
   function render() {
+    if (!S.content) return; // 內容尚未載入（網路較慢時切換網址），載入後 boot() 會再渲染
     // Android App 內建瀏覽器（LINE/FB WebView）沒有 speechSynthesis，須經 window 存取才不會丟 ReferenceError
     window.speechSynthesis?.cancel?.(); speakingBtn = null;
     const h = location.hash.replace(/^#\/?/, '') || '';
@@ -180,16 +200,21 @@
     const order = STAGES.map(s => s.id);
     const reach = id => order.indexOf(id) <= order.indexOf(allowed);
     let view = name || (S.token ? stageRoute(allowed) : 'home');
-    // 進度保護：未到的階段導回目前階段；已完成的測驗不可重做
+    if (view === 'consent') view = 'home'; // 舊網址相容
+    // 進度保護：未到的階段導回目前階段；正式測驗與問卷完成後不可重做（完成全部後可另外「再測」）
+    const learning = S.pretestDone && S.surveys.has('pre');
     const guards = {
-      consent: () => !S.token, id: () => !!S.token, recover: () => true, home: () => true,
+      id: () => !!S.token, recover: () => !S.token, home: () => !S.token,
       demographics: () => !!S.token && !S.hasDemo,
       pretest: () => S.hasDemo && !S.pretestDone,
-      hub: () => S.pretestDone, module: () => S.pretestDone && !!S.content.modules.find(m => m.id === arg),
-      ai: () => S.pretestDone,
+      presurvey: () => S.pretestDone && !S.surveys.has('pre'),
+      hub: () => learning, module: () => learning && !!S.content.modules.find(m => m.id === arg),
+      ai: () => learning,
       posttest: () => reach('posttest') && !S.posttestDone,
-      se: () => S.posttestDone && !S.state.seDone, sat: () => S.state.seDone && !S.state.satDone,
-      done: () => S.posttestDone && S.state.seDone && S.state.satDone,
+      postsurvey: () => S.posttestDone && !S.surveys.has('post'),
+      sat: () => S.surveys.has('post') && !S.surveys.has('sat'),
+      done: () => S.completed || S.surveys.has('sat'),
+      retake: () => S.completed,
       sources: () => true
     };
     if (!routes[view] || !(guards[view] ? guards[view]() : true)) { view = S.token ? stageRoute(allowed) : 'home'; history.replaceState(null, '', '#/' + view); }
@@ -202,28 +227,44 @@
     window.scrollTo(0, 0);
     if (S.token) log({ event_type: 'page_view', module_id: currentModule, item_id: view });
   }
-  const stageRoute = st => ({ consent: 'consent', demographics: 'demographics', pretest: 'pretest', modules: 'hub', ai: 'ai', posttest: 'posttest', se: 'se', sat: 'sat', done: 'done' }[st]);
+  const stageRoute = st => ({ login: 'home', demographics: 'demographics', pretest: 'pretest', presurvey: 'presurvey', modules: 'hub', ai: 'ai', posttest: 'posttest', postsurvey: 'postsurvey', sat: 'sat', done: 'done' }[st]);
 
   // ================= 頁面 =================
   routes.home = (el) => {
     const m = S.content.meta;
-    el.innerHTML = `<section class="hero"><img src="icons/icon.svg" alt="" width="120" height="120"><h1>${esc(m.title)}</h1>
+    el.innerHTML = `<section class="hero"><img src="icons/icon.svg" alt="" width="104" height="104"><h1>${esc(m.title)}</h1>
       <p class="lead">用 8 個互動單元、生活案例與 AI 智慧助理，一步一步學會照顧血糖。</p></section>
+      <div class="card login-box"><h2 style="margin-top:0">登入</h2>
+        <div class="field"><label for="code">編號</label>
+          <input id="code" class="input" autocomplete="off" autocapitalize="characters" placeholder="請輸入現場人員提供的編號">
+          <p class="muted">沒有編號可留空，系統會自動產生一組。不需要填姓名。</p></div>
+        <p id="c-err" class="feedback bad" hidden></p>
+        <button class="btn block" id="login">登入 ➜</button>
+        <p class="center" style="margin:.8rem 0 0"><a href="#/recover">已經登入過？輸入編號＋繼續碼，接著上次進度</a></p></div>
       <div class="feature-grid">
         <div class="feature"><span class="ic">🔤</span><div><b>字大好讀</b><br><span class="muted">右上角可放大字體、切換高對比，也可以按「朗讀」聽內容。</span></div></div>
         <div class="feature"><span class="ic">📱</span><div><b>手機電腦都能用</b><br><span class="muted">可分次完成，系統會記住您的進度。</span></div></div>
         <div class="feature"><span class="ic">🤖</span><div><b>AI 智慧助理</b><br><span class="muted">隨時提問糖尿病衛教問題。</span></div></div>
-        <div class="feature"><span class="ic">🔒</span><div><b>匿名參與</b><br><span class="muted">不需要填姓名，只用研究編號。</span></div></div>
       </div>
-      <div class="actions"><a class="btn block" href="#/consent">開始參與研究 ➜</a></div>
-      <div class="actions"><a class="btn secondary block" href="#/recover">我已經有研究編號，繼續上次進度</a></div>
       <p class="muted center" style="margin-top:1rem">${esc(m.aiDisclaimer)}</p>`;
+    const go1 = async () => {
+      const btn = $('#login'); btn.disabled = true; const er = $('#c-err'); er.hidden = true;
+      try {
+        const r = await api('/api/p/start', { code: $('#code').value.trim(), device_type: device });
+        S.token = r.token; S.pid = r.participant_id; S.sid = r.session_id; S.resumeCode = r.resume_code;
+        S.state = { stage: 'demographics', mod: {} };
+        store.set('token', S.token); store.set('pid', S.pid); store.set('rc', S.resumeCode); store.set('state', S.state);
+        go('#/id');
+      } catch (e) { er.textContent = e.message; er.hidden = false; btn.disabled = false; }
+    };
+    $('#login').addEventListener('click', go1);
+    $('#code').addEventListener('keydown', e => { if (e.key === 'Enter') go1(); });
   };
 
   routes.recover = (el) => {
     el.innerHTML = `<h1>繼續上次進度</h1><div class="card">
-      <p>請輸入開始時系統給您的「研究編號」與「繼續碼」。</p>
-      <div class="field"><label for="rc-pid">研究編號</label><input id="rc-pid" class="input" autocomplete="off" placeholder="例如 P0012" value="${esc(S.pid || '')}"></div>
+      <p>請輸入登入時系統給您的「編號」與「繼續碼」。</p>
+      <div class="field"><label for="rc-pid">編號</label><input id="rc-pid" class="input" autocomplete="off" placeholder="例如 P0012" value="${esc(S.pid || '')}"></div>
       <div class="field"><label for="rc-code">繼續碼（6 碼）</label><input id="rc-code" class="input" autocomplete="off" autocapitalize="characters" placeholder="例如 7KQ2MX" maxlength="8"></div>
       <p id="rc-err" class="feedback bad" hidden></p></div>
       <div class="actions sticky"><a class="btn ghost" href="#/">返回</a><button class="btn" id="rc-go">繼續</button></div>`;
@@ -237,50 +278,25 @@
     });
   };
 
-  routes.consent = (el) => {
-    const c = S.content.consent;
-    el.innerHTML = `<h1>${esc(c.title)}</h1>
-      ${c.sections.map(s => `<div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(s.h)}</h2>${ttsBtn(s.h + '。' + s.p)}</div><p style="margin-top:.5rem">${esc(s.p)}</p></div>`).join('')}
-      <div class="card"><h2>同意事項</h2>
-        ${c.checks.map((t, i) => `<label class="check-line"><input type="checkbox" class="cc" data-i="${i}"><span>${esc(t)}</span></label>`).join('')}
-        <div class="field"><label for="code">研究編號（選填）</label>
-          <input id="code" class="input" autocomplete="off" placeholder="若研究人員有給您編號請輸入；沒有則留空，系統自動產生">
-          <p class="muted">本平台不收集姓名、電話等可識別個人資料。</p></div>
-        <p id="c-err" class="feedback bad" hidden></p></div>
-      <div class="actions sticky"><a class="btn ghost" href="#/">不同意，離開</a><button class="btn" id="agree" disabled>我同意，開始參與</button></div>`;
-    const upd = () => { $('#agree').disabled = !$$('.cc').every(x => x.checked); };
-    $$('.cc').forEach(x => x.addEventListener('change', upd));
-    $('#agree').addEventListener('click', async () => {
-      const btn = $('#agree'); btn.disabled = true;
-      try {
-        const r = await api('/api/p/start', { consent: true, code: $('#code').value.trim(), device_type: device });
-        S.token = r.token; S.pid = r.participant_id; S.sid = r.session_id; S.resumeCode = r.resume_code;
-        S.state = { stage: 'demographics', mod: {} };
-        store.set('token', S.token); store.set('pid', S.pid); store.set('rc', S.resumeCode); store.set('state', S.state);
-        go('#/id');
-      } catch (e) { const er = $('#c-err'); er.textContent = e.message; er.hidden = false; btn.disabled = false; }
-    });
-  };
-
   routes.id = (el) => {
-    el.innerHTML = `<h1>您的匿名研究編號</h1>
-      <div class="card center"><p>研究編號</p><div class="code-big">${esc(S.pid)}</div>
+    el.innerHTML = `<h1>登入成功</h1>
+      <div class="card center"><p>您的編號</p><div class="code-big">${esc(S.pid)}</div>
       <p style="margin-top:1rem">繼續碼</p><div class="code-big">${esc(S.resumeCode || '—')}</div>
       <p class="muted" style="margin-top:1rem">請把這兩組號碼抄下來或拍照保存。換手機、換電腦時，可以用它們繼續上次的進度。</p>
       <button class="btn secondary small" id="copy">📋 複製號碼</button></div>
       <div class="actions sticky"><button class="btn block" id="next">我記下了，下一步 ➜</button></div>`;
-    $('#copy').addEventListener('click', () => { navigator.clipboard?.writeText(`研究編號 ${S.pid}／繼續碼 ${S.resumeCode}`).then(() => toast('已複製')); });
+    $('#copy').addEventListener('click', () => { navigator.clipboard?.writeText(`編號 ${S.pid}／繼續碼 ${S.resumeCode}`).then(() => toast('已複製')); });
     $('#next').addEventListener('click', () => go('#/demographics'));
   };
 
   routes.demographics = (el) => {
     const qs = S.content.demographics;
     const ans = store.get('demo_draft', {});
-    el.innerHTML = `<h1>基本資料</h1><p class="lead">這些資料只用於研究統計分析，不會用來辨識您的身分。</p>
+    el.innerHTML = `<h1>基本資料</h1><p class="lead">這些資料只用於統計分析，不會用來辨識您的身分。</p>
       ${qs.map(q => `<div class="card" role="group" aria-labelledby="dq-${q.id}"><h2 id="dq-${q.id}" style="font-size:1.12rem">${esc(q.label)}</h2>
         <div class="opt-list">${q.options.map(o => `<button class="opt ${q.type === 'multi' ? 'multi' : ''}" role="${q.type === 'multi' ? 'checkbox' : 'radio'}" data-q="${q.id}" data-v="${esc(o)}" aria-checked="false"><span class="mark"></span>${esc(o)}</button>`).join('')}</div></div>`).join('')}
       <p id="d-err" class="feedback bad" hidden></p>
-      <div class="actions sticky"><button class="btn block" id="d-next">送出，開始前測 ➜</button></div>`;
+      <div class="actions sticky"><button class="btn block" id="d-next">送出，開始知識前測 ➜</button></div>`;
     const sync = () => $$('.opt[data-q]').forEach(b => {
       const q = qs.find(x => x.id === b.dataset.q); const v = ans[q.id];
       const on = q.type === 'multi' ? (v || []).includes(b.dataset.v) : v === b.dataset.v;
@@ -313,7 +329,7 @@
     }
     let idx = Math.min(S.state[key] || 0, items.length - 1);
     const title = phase === 'pre' ? '知識前測' : '知識後測';
-    const intro = () => phase === 'pre' ? T.intro + ' 前測完成後不會立即顯示分數。' : '恭喜完成所有學習單元！請再作答一次相同主題的測驗，完成後就能看到學習成果。';
+    const intro = () => phase === 'pre' ? T.intro : '恭喜完成所有學習單元！請再作答一次和前測相同的 10 題，看看自己進步了多少。';
     let shownAt, changes;
     // 答案在背景依序儲存（不讓長者每題等待網路）；送出測驗前會確認全部存好
     let chain = Promise.resolve(); const failed = new Map();
@@ -360,25 +376,31 @@
           await chain;
           if (failed.size) throw new Error(`有 ${failed.size} 題答案尚未儲存成功，請確認網路後再按一次「送出測驗」`);
           const r = await api('/api/p/test/complete', { phase });
-          if (phase === 'pre') { S.pretestDone = true; S.state.stage = 'modules'; saveState(); finishPre(el); }
-          else { S.posttestDone = true; S.state.stage = 'se'; S.summary = r.summary; saveState(); finishPost(el); }
+          if (phase === 'pre') { S.pretestDone = true; S.scores.pre = r.score; S.state.stage = 'presurvey'; saveState(); finishPre(el, r); }
+          else { S.posttestDone = true; S.scores.post = r.score; S.state.stage = 'postsurvey'; saveState(); finishPost(el, r); }
         } catch (e) { const er = $('#t-err'); er.textContent = e.message; er.hidden = false; btn.disabled = false; btn.textContent = '送出測驗 ✓'; }
       });
     };
     show();
   }
-  function finishPre(el) {
+  const scoreCard = (r, label) => `<div class="card center score-card"><p class="muted" style="margin:0">${label}</p>
+      <div class="score-big">${r.score}<small> 分</small></div><p style="margin:0">答對 ${r.n_correct} / ${r.total} 題（每題 10 分，滿分 100 分）</p></div>`;
+  function finishPre(el, r) {
     renderProgress();
-    el.innerHTML = `<div class="celebrate">👏</div><h1 class="center">前測完成，謝謝您！</h1>
-      <div class="card"><p>接下來有 8 個互動式衛教單元，每個單元約 5–8 分鐘，可以依自己的步調分次完成。</p>
-      <p class="muted">為了研究的正確性，前測分數會在完成後測後一起提供學習成果摘要。</p></div>
-      <div class="actions sticky"><a class="btn block" href="#/hub">開始學習 ➜</a></div>`;
+    el.innerHTML = `<div class="celebrate">👏</div><h1 class="center">知識前測完成！</h1>
+      ${scoreCard(r, '您的知識前測分數')}
+      <div class="card"><p>先記住這個分數，學完 8 個單元後還會再測一次相同的題目，看看自己進步多少。</p>
+      <p>接下來請先填寫一份<b>前測問卷</b>（約 5 分鐘），了解您目前的想法與信心，沒有對錯。</p></div>
+      <div class="actions sticky"><a class="btn block" href="#/presurvey">填寫前測問卷 ➜</a></div>`;
   }
-  function finishPost(el) {
+  function finishPost(el, r) {
     renderProgress();
-    el.innerHTML = `<div class="celebrate">🎓</div><h1 class="center">後測完成！</h1>
-      <div class="card"><p>最後還有兩份簡短問卷（自我效能與系統滿意度），完成後就能看到您的學習成果摘要。</p></div>
-      <div class="actions sticky"><a class="btn block" href="#/se">填寫問卷 ➜</a></div>`;
+    const gain = r.pretest_score != null ? Math.round((r.score - r.pretest_score) * 10) / 10 : null;
+    el.innerHTML = `<div class="celebrate">🎓</div><h1 class="center">知識後測完成！</h1>
+      ${scoreCard(r, '您的知識後測分數')}
+      ${gain != null ? `<div class="card center"><p style="margin:0">前測 <b>${r.pretest_score}</b> 分 → 後測 <b>${r.score}</b> 分　<b style="color:${gain >= 0 ? 'var(--ok)' : 'var(--bad)'}">${gain > 0 ? '進步 +' + gain : gain === 0 ? '持平' : gain} 分</b></p></div>` : ''}
+      <div class="card"><p>最後還有兩份問卷：<b>後測問卷</b>與<b>滿意度問卷</b>，完成後就能看到完整的學習成果與趨勢圖。</p></div>
+      <div class="actions sticky"><a class="btn block" href="#/postsurvey">填寫後測問卷 ➜</a></div>`;
   }
   routes.pretest = el => testView(el, 'pre');
   routes.posttest = el => testView(el, 'post');
@@ -395,7 +417,7 @@
           <span class="badge ${done ? 'ok' : doing ? 'doing' : ''}">${done ? '✓ 已完成' : doing ? '學習中' : '未開始'}</span></span></a>`;
       }).join('')}</div>
       <div class="card soft" style="margin-top:1rem"><div class="row"><span style="font-size:2rem">🤖</span><div class="grow"><b>有問題想問嗎？</b><br><span class="muted">AI 智慧助理可以隨時回答糖尿病衛教問題。</span></div><a class="btn secondary" href="#/ai">問 AI</a></div></div>
-      <div class="actions sticky">${all8 ? '<a class="btn block" href="#/ai">下一步：AI 智慧助理 ➜</a>' : `<a class="btn block" href="#/module/${(mods.find(m => !S.modulesDone.has(m.id)) || mods[0]).id}">繼續學習：${esc((mods.find(m => !S.modulesDone.has(m.id)) || mods[0]).title)} ➜</a>`}</div>`;
+      <div class="actions sticky">${S.completed ? '<a class="btn block" href="#/done">回到學習成果 ➜</a>' : all8 ? '<a class="btn block" href="#/ai">下一步：AI 智慧助理 ➜</a>' : `<a class="btn block" href="#/module/${(mods.find(m => !S.modulesDone.has(m.id)) || mods[0]).id}">繼續學習：${esc((mods.find(m => !S.modulesDone.has(m.id)) || mods[0]).title)} ➜</a>`}</div>`;
   };
 
   // ---------- 互動問題元件 ----------
@@ -641,61 +663,156 @@
     const all8 = S.modulesDone.size >= 8;
     el.innerHTML = `<h1>🤖 AI 智慧助理</h1><p class="lead">想問什麼都可以，例如血糖、飲食、運動、低血糖、足部照護或藥物安全的一般原則。</p>
       <div class="card"><div id="cb"></div></div>
-      <div class="actions sticky">${all8 && !S.posttestDone ? '<a class="btn ghost" href="#/hub">單元列表</a><button class="btn" id="to-post">前往知識後測 →</button>' : '<a class="btn block secondary" href="#/hub">← 回到單元列表</a>'}</div>`;
+      <div class="actions sticky">${all8 && !S.posttestDone ? '<a class="btn ghost" href="#/hub">單元列表</a><button class="btn" id="to-post">前往知識後測 →</button>' : S.completed ? '<a class="btn ghost" href="#/hub">單元列表</a><a class="btn" href="#/done">回到學習成果</a>' : '<a class="btn block secondary" href="#/hub">← 回到單元列表</a>'}</div>`;
     chatBlock($('#cb', el), null, cats);
     const tp = $('#to-post');
     if (tp) tp.addEventListener('click', () => { S.state.aiDone = true; S.state.stage = 'posttest'; saveState(); go('#/posttest'); });
   };
 
-  // ---------- 問卷 ----------
-  function likertView(el, def, instrument, onDone) {
-    const ans = store.get('q_' + instrument, {});
-    el.innerHTML = `<h1>${esc(def.title)}</h1><div class="card soft"><p style="margin:0">${esc(def.intro)}</p></div>
-      <div class="card">${def.items.map((it, n) => `<div class="likert-item" role="radiogroup" aria-labelledby="lk-${it.id}">
-        <div class="row"><p id="lk-${it.id}" class="grow" style="margin:0;font-weight:700">${n + 1}. ${esc(it.text)}</p>${ttsBtn(it.text)}</div>
-        <div class="likert">${def.scale.map((s, i) => `<button class="opt" role="radio" data-q="${it.id}" data-v="${i + 1}" aria-checked="${ans[it.id] === i + 1}"><span class="mark">${i + 1}</span>${esc(s)}</button>`).join('')}</div></div>`).join('')}
-      ${(def.open || []).map(o => `<div class="field"><label for="${o.id}">${esc(o.label)}</label><textarea id="${o.id}" class="input" rows="3" maxlength="1000">${esc(ans[o.id] || '')}</textarea></div>`).join('')}</div>
-      ${def.note ? `<p class="muted">${esc(def.note)}</p>` : ''}
-      <p id="q-err" class="feedback bad" hidden></p>
-      <div class="actions sticky"><button class="btn block" id="q-sub">送出問卷 ✓</button></div>`;
-    $$('.likert .opt', el).forEach(b => b.addEventListener('click', () => {
-      ans[b.dataset.q] = +b.dataset.v; store.set('q_' + instrument, ans);
-      $$(`.opt[data-q="${b.dataset.q}"]`, el).forEach(x => x.setAttribute('aria-checked', x === b));
-    }));
-    (def.open || []).forEach(o => $('#' + o.id, el).addEventListener('input', e => { ans[o.id] = e.target.value; store.set('q_' + instrument, ans); }));
-    $('#q-sub', el).addEventListener('click', async () => {
-      const miss = def.items.filter(it => !ans[it.id]);
-      const er = $('#q-err', el);
-      if (miss.length) { er.textContent = `還有 ${miss.length} 題沒有回答（第 ${miss.map(m => def.items.indexOf(m) + 1).join('、')} 題）`; er.hidden = false; $(`#lk-${miss[0].id}`, el).scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
-      try { await api('/api/p/questionnaire', { instrument, answers: ans }); store.del('q_' + instrument); onDone(); }
-      catch (e) { er.textContent = e.message; er.hidden = false; }
-    });
+  // ---------- 問卷（前測問卷／後測問卷／滿意度問卷，每份分成數個部分，一頁一部分）----------
+  function surveyView(el, sid, onDone) {
+    const sv = S.content.surveys[sid];
+    const defs = sv.parts.map(k => S.content[k]);
+    const draftKey = 'sv_' + sid;
+    const ans = store.get(draftKey, {});
+    let part = Math.min(store.get(draftKey + '_part', 0), defs.length - 1);
+    const draw = () => {
+      const def = defs[part];
+      el.innerHTML = `<h1>${esc(sv.title)}</h1>${part === 0 ? `<div class="card soft"><p style="margin:0">${esc(sv.intro)}</p></div>` : ''}
+        <div class="progress-label"><span>第 ${part + 1} / ${defs.length} 部分：${esc(def.title)}</span><span>${def.items.length} 題</span></div>
+        <div class="bar" style="margin-bottom:1rem"><i style="width:${(part + 1) / defs.length * 100}%"></i></div>
+        <div class="card soft"><p style="margin:0">${esc(def.intro)}<br><span class="muted">1＝${esc(def.scale[0])}，5＝${esc(def.scale[def.scale.length - 1])}</span></p></div>
+        <div class="card">${def.items.map((it, n) => `<div class="likert-item" role="radiogroup" aria-labelledby="lk-${it.id}">
+          <div class="row"><p id="lk-${it.id}" class="grow" style="margin:0;font-weight:700">${n + 1}. ${esc(it.text)}</p>${ttsBtn(it.text)}</div>
+          <div class="likert">${def.scale.map((sc, i) => `<button class="opt" role="radio" data-q="${it.id}" data-v="${i + 1}" aria-checked="${ans[it.id] === i + 1}"><span class="mark">${i + 1}</span>${esc(sc)}</button>`).join('')}</div></div>`).join('')}
+        ${(def.open || []).map(o => `<div class="field"><label for="${o.id}">${esc(o.label)}</label><textarea id="${o.id}" class="input" rows="3" maxlength="1000">${esc(ans[o.id] || '')}</textarea></div>`).join('')}</div>
+        <p id="q-err" class="feedback bad" hidden></p>
+        <div class="actions sticky">${part > 0 ? '<button class="btn ghost" id="q-prev">← 上一部分</button>' : ''}<button class="btn ${part > 0 ? '' : 'block'}" id="q-next">${part < defs.length - 1 ? '下一部分 →' : '送出問卷 ✓'}</button></div>`;
+      $$('.likert .opt', el).forEach(b => b.addEventListener('click', () => {
+        ans[b.dataset.q] = +b.dataset.v; store.set(draftKey, ans);
+        $$(`.opt[data-q="${b.dataset.q}"]`, el).forEach(x => x.setAttribute('aria-checked', x === b));
+      }));
+      (def.open || []).forEach(o => $('#' + o.id, el).addEventListener('input', e => { ans[o.id] = e.target.value; store.set(draftKey, ans); }));
+      const prev = $('#q-prev', el);
+      if (prev) prev.addEventListener('click', () => { part--; store.set(draftKey + '_part', part); draw(); window.scrollTo(0, 0); });
+      $('#q-next', el).addEventListener('click', async () => {
+        const er = $('#q-err', el);
+        const miss = def.items.filter(it => !ans[it.id]);
+        if (miss.length) { er.textContent = `這一部分還有 ${miss.length} 題沒有回答（第 ${miss.map(m => def.items.indexOf(m) + 1).join('、')} 題）`; er.hidden = false; $(`#lk-${miss[0].id}`, el).scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+        if (part < defs.length - 1) { part++; store.set(draftKey + '_part', part); draw(); window.scrollTo(0, 0); return; }
+        const btn = $('#q-next', el); btn.disabled = true; btn.textContent = '儲存中，請稍候…';
+        try {
+          const r = await api('/api/p/survey', { survey: sid, answers: ans });
+          S.surveys = new Set(r.surveys_done); store.del(draftKey); store.del(draftKey + '_part'); saveState(); onDone();
+        } catch (e) { er.textContent = e.message; er.hidden = false; btn.disabled = false; btn.textContent = '送出問卷 ✓'; }
+      });
+    };
+    draw();
   }
-  routes.se = el => likertView(el, S.content.selfEfficacy, 'self_efficacy', () => { S.state.seDone = true; S.state.stage = 'sat'; saveState(); go('#/sat'); });
-  routes.sat = el => likertView(el, S.content.satisfaction, 'satisfaction', async () => {
-    S.state.satDone = true; S.state.stage = 'done'; saveState();
-    try { const r = await api('/api/p/complete', {}); S.summary = r.summary; S.completed = true; } catch (e) { toast(e.message); }
+  routes.presurvey = el => surveyView(el, 'pre', () => {
+    S.state.stage = 'modules'; saveState(); renderProgress();
+    el.innerHTML = `<div class="celebrate">📘</div><h1 class="center">前測問卷完成，謝謝您！</h1>
+      <div class="card"><p>接下來有 8 個互動式衛教單元，每個單元約 5–8 分鐘，可以依自己的步調分次完成。</p></div>
+      <div class="actions sticky"><a class="btn block" href="#/hub">開始學習 ➜</a></div>`;
+    window.scrollTo(0, 0);
+  });
+  routes.postsurvey = el => surveyView(el, 'post', () => { S.state.stage = 'sat'; saveState(); go('#/sat'); });
+  routes.sat = el => surveyView(el, 'sat', async () => {
+    S.state.stage = 'done'; saveState();
+    try { await api('/api/p/complete', {}); S.completed = true; } catch (e) { toast(e.message); }
     go('#/done');
+  });
+
+  // ---------- 完成後：知識測驗再測（練習，不覆蓋正式後測）----------
+  routes.retake = (el) => {
+    const items = S.content.knowledgeTest.items;
+    const ans = {}; let idx = 0; const t0 = performance.now();
+    log({ event_type: 'retake_started' });
+    const show = () => {
+      const it = items[idx]; const sel = ans[it.id];
+      el.innerHTML = `<h1>知識測驗：再測一次</h1>${idx === 0 ? '<div class="card soft"><p style="margin:0">這是完成學習後的自我練習，題目與前測、後測相同，不會改變您正式的後測分數。完成後會告訴您每一題的正確答案。</p></div>' : ''}
+        <div class="progress-label"><span>第 ${idx + 1} / ${items.length} 題</span><span>${Object.keys(ans).length} 題已作答</span></div>
+        <div class="bar" style="margin-bottom:1rem"><i style="width:${(idx + 1) / items.length * 100}%"></i></div>
+        <div class="card" role="radiogroup" aria-labelledby="tq"><div class="row"><h2 id="tq" class="grow" style="font-size:1.2rem">${idx + 1}. ${esc(it.stem)}</h2>${ttsBtn(it.stem + '。' + it.options.map((o, i) => `選項${i + 1}，${o}`).join('。'))}</div>
+        <div class="opt-list">${it.options.map((o, i) => `<button class="opt" role="radio" data-i="${i}" aria-checked="${sel === i}"><span class="mark">${sel === i ? '✓' : String.fromCharCode(65 + i)}</span>${esc(o)}</button>`).join('')}</div></div>
+        <p id="t-err" class="feedback bad" hidden></p>
+        <div class="actions sticky"><button class="btn ghost" id="prev" ${idx === 0 ? 'disabled' : ''}>← 上一題</button>
+          <button class="btn" id="nxt" ${sel == null ? 'disabled' : ''}>${idx === items.length - 1 ? '送出 ✓' : '下一題 →'}</button></div>`;
+      $$('.opt', el).forEach(b => b.addEventListener('click', () => {
+        ans[it.id] = +b.dataset.i;
+        $$('.opt', el).forEach((x, i) => { x.setAttribute('aria-checked', i === ans[it.id]); x.querySelector('.mark').textContent = i === ans[it.id] ? '✓' : String.fromCharCode(65 + i); });
+        $('#nxt').disabled = false;
+      }));
+      $('#prev').addEventListener('click', () => { idx--; show(); });
+      $('#nxt').addEventListener('click', async () => {
+        if (idx < items.length - 1) { idx++; show(); return; }
+        const btn = $('#nxt'); btn.disabled = true; btn.textContent = '計分中…';
+        try {
+          const r = await api('/api/p/test/retake', { answers: ans, time_on_task: Math.round((performance.now() - t0) / 1000) });
+          el.innerHTML = `<div class="celebrate">💯</div><h1 class="center">再測完成！</h1>
+            ${scoreCard(r, `第 ${r.attempt} 次再測分數`)}
+            <div class="card"><h2>逐題對答案</h2><ol class="review">${r.review.map(q => `<li class="${q.correct ? 'ok' : 'bad'}"><b>${q.correct ? '✔' : '✘'} ${esc(q.stem)}</b><br>
+              ${q.correct ? '' : `您的答案：${esc(q.options[q.response])}<br>`}正確答案：<b>${esc(q.options[q.answer])}</b></li>`).join('')}</ol></div>
+            <div class="actions"><a class="btn" href="#/done">回到學習成果</a><a class="btn secondary" href="#/ai">問 AI</a><a class="btn ghost" href="#/hub">複習單元</a></div>`;
+          renderProgress(); window.scrollTo(0, 0);
+        } catch (e) { const er = $('#t-err'); er.textContent = e.message; er.hidden = false; btn.disabled = false; btn.textContent = '送出 ✓'; }
+      });
+    };
+    show();
+  };
+
+  // Chart.js 只在學習成果頁需要，延後載入
+  let chartJs = null;
+  const loadChart = () => chartJs = chartJs || new Promise((ok, no) => {
+    if (window.Chart) return ok(window.Chart);
+    const sc = document.createElement('script'); sc.src = 'vendor/chart.umd.js'; sc.onload = () => ok(window.Chart); sc.onerror = no; document.head.appendChild(sc);
   });
 
   routes.done = async (el) => {
     el.innerHTML = '<p>載入學習成果中…</p>';
     let s = S.summary;
     try { s = await api('/api/p/summary', null, 'GET'); } catch { /* 使用快取 */ }
-    if (!S.completed) { try { await api('/api/p/complete', {}); S.completed = true; } catch { } }
+    if (!S.completed) { try { await api('/api/p/complete', {}); S.completed = true; renderProgress(); } catch { } }
     const sign = s.gain > 0 ? '+' : '';
+    const best = (s.retakes || []).reduce((m, r) => Math.max(m, r.score), -1);
+    const SCALE_NOTE = { anxiety: '分數越低代表越不焦慮' };
     el.innerHTML = `<div class="celebrate">🎉</div><h1 class="center">恭喜完成全部學習！</h1>
       <div class="card"><h2>您的學習成果摘要</h2>
         <div class="score-row"><div><div class="muted">前測</div><div class="n">${s.pretest_score ?? '—'}</div></div>
         <div><div class="muted">後測</div><div class="n">${s.posttest_score ?? '—'}</div></div>
-        <div><div class="muted">進步</div><div class="n" style="color:var(--ok)">${s.gain == null ? '—' : sign + s.gain}</div></div></div>
-        <p class="muted center">滿分 100 分｜完成 ${s.modules_completed} 個單元｜向 AI 提問 ${s.ai_questions} 次</p></div>
-      <div class="card"><h2>各主題答對題數</h2><p class="muted">灰色：前測｜綠色：後測</p>
+        <div><div class="muted">進步</div><div class="n" style="color:${s.gain < 0 ? 'var(--bad)' : 'var(--ok)'}">${s.gain == null ? '—' : sign + s.gain}</div></div></div>
+        <p class="muted center">滿分 100 分｜完成 ${s.modules_completed} 個單元｜向 AI 提問 ${s.ai_questions} 次${best >= 0 ? `｜再測最高 ${best} 分` : ''}</p></div>
+      <div class="card"><h2>我和大家的比較趨勢</h2><p class="muted" id="cmp-note">載入中…</p>
+        <div class="chart-box"><canvas id="c-cmp" aria-label="知識測驗分數：我和大家平均的比較"></canvas></div>
+        <div class="table-wrap" id="cmp-table"></div></div>
+      <div class="card"><h2>各主題答對題數</h2><p class="muted">灰色：前測｜紫色：後測</p>
         ${s.domains.map(d => `<div class="domain-bar"><span class="lbl">${d.icon} ${esc(d.title)}</span>
           <div><div class="bar" style="margin-bottom:3px"><i class="pre" style="width:${d.pre_correct / d.n * 100}%"></i></div><div class="bar"><i style="width:${d.post_correct / d.n * 100}%"></i></div></div>
           <span>${d.pre_correct}→${d.post_correct}/${d.n}</span></div>`).join('')}</div>
-      <div class="card soft"><p><b>謝謝您參與本研究！</b>您可以隨時回到單元列表複習內容或詢問 AI 智慧助理。</p><p class="muted">${esc(S.content.meta.aiDisclaimer)} 若有身體不適，請洽您的醫療團隊。</p></div>
-      <div class="actions"><a class="btn secondary" href="#/hub">複習單元</a><a class="btn secondary" href="#/ai">問 AI</a><a class="btn ghost" href="#/sources">資料來源</a></div>`;
+      <div class="card soft"><p><b>謝謝您完成本次學習！</b>您可以隨時回到單元列表複習、詢問 AI 智慧助理，或再測一次知識測驗（不影響正式成績）。</p><p class="muted">${esc(S.content.meta.aiDisclaimer)} 若有身體不適，請洽您的醫療團隊。</p></div>
+      <div class="actions"><a class="btn" href="#/retake">再測一次知識測驗</a><a class="btn secondary" href="#/ai">問 AI</a><a class="btn secondary" href="#/hub">複習單元</a><a class="btn ghost" href="#/sources">資料來源</a></div>`;
+    try {
+      const [g, Chart] = await Promise.all([api('/api/p/compare', null, 'GET'), loadChart()]);
+      if (!$('#c-cmp')) return;
+      const labels = ['知識前測', '知識後測']; const me = [s.pretest_score, s.posttest_score]; const avg = [g.pretest_mean, g.posttest_mean];
+      if (best >= 0) { labels.push('再測（最高）'); me.push(best); avg.push(g.retake_mean); }
+      $('#cmp-note').textContent = `「大家」為已完成後測的 ${g.n} 人平均${g.simulated ? '（目前人數較少，含示範資料）' : ''}。`;
+      const cs = getComputedStyle(document.documentElement);
+      Chart.defaults.font.family = getComputedStyle(document.body).fontFamily; Chart.defaults.color = cs.getPropertyValue('--ink-2').trim();
+      new Chart($('#c-cmp'), {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: '我', data: me, borderColor: cs.getPropertyValue('--brand').trim(), backgroundColor: cs.getPropertyValue('--brand').trim(), borderWidth: 4, pointRadius: 7, tension: .2 },
+          { label: '大家平均', data: avg, borderColor: '#9a8aa6', backgroundColor: '#9a8aa6', borderDash: [8, 6], borderWidth: 3, pointRadius: 6, tension: .2 }
+        ] },
+        options: { maintainAspectRatio: false, animation: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 16 } } } }, scales: { y: { min: 0, max: 100, title: { display: true, text: '分數' } }, x: { ticks: { font: { size: 15 } } } } }
+      });
+      const keys = ['health_literacy', 'anxiety', 'learning_se', 'self_efficacy'];
+      const f = v => v == null ? '—' : v;
+      $('#cmp-table').innerHTML = `<table class="tbl cmp" style="margin-top:1rem"><thead><tr><th>問卷（平均 1–5 分）</th><th>我：前→後</th><th>大家：前→後</th></tr></thead><tbody>
+        ${keys.filter(k => s.scales[k]).map(k => `<tr><td data-label="問卷"><b>${esc(s.scales[k].title)}</b>${SCALE_NOTE[k] ? `<br><span class="muted">${SCALE_NOTE[k]}</span>` : ''}</td>
+          <td data-label="我">${f(s.scales[k].pre_mean)} → ${f(s.scales[k].post_mean)}</td><td data-label="大家">${f(g.scales[k]?.pre_mean)} → ${f(g.scales[k]?.post_mean)}</td></tr>`).join('')}</tbody></table>`;
+    } catch (e) { const n = $('#cmp-note'); if (n) n.textContent = '目前無法載入比較資料（' + e.message + '）'; }
   };
 
   routes.sources = (el) => {
@@ -712,8 +829,9 @@
     S.state = Object.assign({ stage: 'demographics', mod: {} }, r.state || {}); S.state.mod = S.state.mod || {};
     S.modulesDone = new Set(r.modules_completed); S.hasDemo = r.has_demographics;
     S.pretestDone = r.pretest_done; S.posttestDone = r.posttest_done; S.completed = r.completed;
-    S.answered = { pre: {}, post: {} }; r.answered.forEach(a => { S.answered[a.phase][a.item_id] = a.response; });
-    if (S.completed) { S.state.seDone = S.state.satDone = S.state.aiDone = true; }
+    S.surveys = new Set(r.surveys_done || []); S.scores = { pre: r.pretest_score, post: r.posttest_score };
+    S.answered = { pre: {}, post: {} }; const ids = new Set(S.content.knowledgeTest.items.map(i => i.id)); r.answered.forEach(a => { if (S.answered[a.phase] && ids.has(a.item_id)) S.answered[a.phase][a.item_id] = a.response; });
+    if (S.completed) { S.state.aiDone = true; ['pre', 'post', 'sat'].forEach(x => S.surveys.add(x)); }
   }
 
   async function boot() {
@@ -723,6 +841,12 @@
     try { const cr = await fetch(API + '/api/content'); if (!cr.ok) throw new Error('HTTP ' + cr.status); S.content = await cr.json(); }
     catch { $('#main').innerHTML = '<div class="card"><h1>無法載入內容</h1><p>請確認網路連線後重新整理頁面。伺服器若閒置較久，第一次開啟可能需要約 1 分鐘喚醒，請稍候再試。</p></div>'; return; }
     document.title = S.content.meta.shortTitle;
+    // 每日瀏覽人次：匿名訪客 id（與編號無關）
+    try {
+      let vid = store.get('vid');
+      if (!vid) { vid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36)).replace(/[^A-Za-z0-9]/g, '').slice(0, 32); store.set('vid', vid); }
+      fetch(API + '/api/visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ vid }) }).catch(() => { });
+    } catch { /* 不影響使用 */ }
     if (S.token) {
       try { await resume(); }
       catch (e) {

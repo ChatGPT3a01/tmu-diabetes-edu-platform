@@ -1,6 +1,7 @@
 // 研究 Dashboard 統計與匯出資料表組裝
-const { all, get } = require('./db');
+const { all, get, twDay } = require('./db');
 const content = require('./content');
+const { scaleScores } = require('./participant');
 
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 const sd = a => { if (a.length < 2) return null; const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
@@ -89,7 +90,6 @@ function modulePerformance(includeSim = true) {
 
 function questionnaireScores(pid) {
   const rows = all('SELECT instrument, item_id, value FROM questionnaires WHERE participant_id = ?', pid);
-  const se = rows.filter(r => r.instrument === 'self_efficacy').map(r => Number(r.value)).filter(n => !Number.isNaN(n));
   const sat = rows.filter(r => r.instrument === 'satisfaction');
   const c = content.load();
   let susSum = 0, susN = 0;
@@ -98,7 +98,41 @@ function questionnaireScores(pid) {
     const v = Number(r.value); susN++;
     susSum += it.sus === 'pos' ? v - 1 : 5 - v;
   }
-  return { se_mean: se.length ? round(mean(se), 2) : null, sus_score: susN === 10 ? round(susSum * 2.5, 1) : null, raw: rows };
+  const scales = scaleScores(pid, c);
+  return { se_mean: scales.self_efficacy?.post_mean ?? null, sus_score: susN === 10 ? round(susSum * 2.5, 1) : null, scales, raw: rows };
+}
+
+// 前後測量表的配對比較（健康識能、焦慮、學習自我效能、自我管理自我效能）
+const SCALES = ['health_literacy', 'anxiety', 'learning_se', 'self_efficacy'];
+function pairedStats(pre, post) {
+  const pairs = pre.map((x, i) => [x, post[i]]).filter(([a, b]) => a != null && b != null);
+  const d = pairs.map(([a, b]) => b - a);
+  let t = null, pv = null;
+  if (d.length >= 2 && sd(d) > 0) { t = mean(d) / (sd(d) / Math.sqrt(d.length)); pv = tTestP(Math.abs(t), d.length - 1); }
+  const a = pre.filter(x => x != null), b = post.filter(x => x != null);
+  return { pre_mean: round(mean(a)), pre_sd: round(sd(a)), pre_n: a.length, post_mean: round(mean(b)), post_sd: round(sd(b)), post_n: b.length,
+    diff_mean: round(mean(d)), paired_n: d.length, t: round(t, 3), p: pv == null ? null : (pv < 0.001 ? '<0.001' : round(pv, 4)) };
+}
+
+// 每日瀏覽人次（最近 30 天）：首頁匿名訪客、登入使用者、頁面瀏覽次數
+function dailyVisits(includeSim) {
+  const days = [];
+  const today = twDay();
+  for (let i = 29; i >= 0; i--) days.push(twDay(new Date(Date.parse(today + 'T00:00:00Z') - i * 864e5 + 12 * 36e5).toISOString()));
+  const v = all(`SELECT day, COUNT(*) visitors, SUM(views) views FROM visits ${includeSim ? '' : "WHERE visitor_id NOT LIKE 'SIMV%'"} GROUP BY day`);
+  const ev = all(`SELECT e.participant_id, e.timestamp FROM events e JOIN participants p ON p.participant_id = e.participant_id WHERE e.event_type = 'page_view' ${simFilter(includeSim)}`);
+  const pv = new Map(), users = new Map();
+  for (const e of ev) {
+    const d = twDay(e.timestamp);
+    pv.set(d, (pv.get(d) || 0) + 1);
+    if (!users.has(d)) users.set(d, new Set()); users.get(d).add(e.participant_id);
+  }
+  const series = days.map(d => {
+    const r = v.find(x => x.day === d);
+    return { day: d, visitors: r ? r.visitors : 0, visits: r ? r.views : 0, active_users: users.has(d) ? users.get(d).size : 0, page_views: pv.get(d) || 0 };
+  });
+  const t = series[series.length - 1];
+  return { series, today: t, total_visitors_30d: series.reduce((a, x) => a + x.visitors, 0), total_visits_30d: series.reduce((a, x) => a + x.visits, 0) };
 }
 
 function dashboard(includeSim = true) {
@@ -169,13 +203,19 @@ function dashboard(includeSim = true) {
   const qs = consented.map(p => questionnaireScores(p.participant_id));
   const seMeans = qs.map(q => q.se_mean).filter(x => x != null);
   const sus = qs.map(q => q.sus_score).filter(x => x != null);
+  const scales = SCALES.map(k => ({ key: k, title: c[{ health_literacy: 'healthLiteracy', anxiety: 'anxiety', learning_se: 'learningSelfEfficacy', self_efficacy: 'selfEfficacy' }[k]]?.title || k,
+    ...pairedStats(qs.map(q => q.scales[k]?.pre_mean ?? null), qs.map(q => q.scales[k]?.post_mean ?? null)) }));
+  const eduSat = qs.map(q => q.scales.edu_satisfaction?.post_mean).filter(x => x != null);
+  const surveyN = sid => consented.filter(p => get("SELECT 1 FROM events WHERE participant_id = ? AND event_type = 'questionnaire_completed' AND item_id = ?", p.participant_id, sid + '_survey')).length;
 
   const funnel = [
-    ['同意參與', consented.length],
-    ['完成前測', pre.length],
+    ['登入', consented.length],
+    ['完成知識前測', pre.length],
+    ['完成前測問卷', surveyN('pre')],
     ['完成 8 模組', consented.filter(p => mp.filter(r => r.participant_id === p.participant_id && r.completed).length === 8).length],
-    ['完成後測', post.length],
-    ['完成問卷', consented.filter(p => get("SELECT COUNT(*) n FROM questionnaires WHERE participant_id=? AND instrument='satisfaction'", p.participant_id).n > 0).length],
+    ['完成知識後測', post.length],
+    ['完成後測問卷', surveyN('post')],
+    ['完成滿意度問卷', surveyN('sat')],
     ['全程完成', consented.filter(p => p.completed_at).length]
   ].map(([stage, n]) => ({ stage, n }));
 
@@ -193,9 +233,10 @@ function dashboard(includeSim = true) {
       avg_learning_min: round(mean(learnMins), 1), avg_total_min: round(mean(totalMins), 1),
       ai_total: ai.length, ai_per_participant: consented.length ? round(ai.length / consented.length, 2) : null,
       ai_users: [...aiCount.keys()].length,
-      se_mean: round(mean(seMeans), 2), sus_mean: round(mean(sus), 1)
+      se_mean: round(mean(seMeans), 2), sus_mean: round(mean(sus), 1), edu_sat_mean: round(mean(eduSat), 2),
+      retake_total: get(`SELECT COUNT(*) n FROM test_retakes t JOIN participants p ON p.participant_id = t.participant_id WHERE 1=1 ${simFilter(includeSim)}`).n
     },
-    funnel, items, modules,
+    funnel, items, modules, scales, visits: dailyVisits(includeSim),
     ai: {
       categories: catDist, guardrails: guardDist, by_level: byLevel, scatter,
       r_ai_post: round(pearson(scatter.map(s => s.ai_count), scatter.map(s => s.posttest)), 3),
@@ -234,8 +275,104 @@ function participantDetail(pid) {
     tests: all('SELECT * FROM test_responses WHERE participant_id = ? ORDER BY phase DESC, item_id', pid),
     modules: modulePerformance(true).filter(r => r.participant_id === pid),
     ai: all('SELECT * FROM ai_interactions WHERE participant_id = ? ORDER BY created_at', pid),
-    questionnaires: questionnaireScores(pid)
+    questionnaires: questionnaireScores(pid),
+    retakes: all('SELECT attempt_no, score, n_correct, total, completed_at FROM test_retakes WHERE participant_id = ? ORDER BY attempt_no', pid)
   };
+}
+
+// ===== AI 常問關鍵字（文字雲）=====
+// 中文沒有空白斷詞：先比對衛教詞典（長詞優先），其餘再取 2–4 字常見片段，排除虛詞
+const AI_DICT = ['糖化血色素', '胰島素阻抗', '低血糖', '高血糖', '血糖機', '血糖值', '空腹血糖', '飯後血糖', '血糖', '胰島素', '注射部位', '注射', '針頭', '筆針',
+  '二甲雙胍', 'Metformin', 'Rybelsus', '瑞倍適', 'Jardiance', 'Trajenta', 'GLP-1', 'SGLT2', '類固醇', '藥物', '吃藥', '停藥', '劑量', '單位', '副作用',
+  '飲食', '早餐', '外食', '白飯', '地瓜', '水果', '代糖', '飲料', '無糖', '澱粉', '醣類', '蛋白質', '蔬菜', '餐盤', '點心', '喝酒', '酒精', '咖啡',
+  '運動', '散步', '走路', '肌力訓練', '膝蓋', '游泳', '飯後運動', '足部', '腳麻', '傷口', '泡腳', '趾甲', '鞋子', '足底', '乾裂', '水泡',
+  '併發症', '眼睛', '視網膜', '腎臟', '腎功能', '心血管', '血壓', '血脂', '中風', '戒菸', '抽菸', '神經病變', '糖尿病前期', '第一型', '第二型',
+  'CGM', '連續血糖', '15-15', '方糖', '果汁', '巧克力', '頭暈', '冒冷汗', '發抖', '睡覺', '晚上', '懷孕', '感冒', '生病'];
+// 片段若含下列虛詞／泛用字就不列入（「糖尿病」幾乎每題都有，也排除）
+const STOP_CHARS = /[較比幾吃的嗎呢吧啊我你他她是有會能要可以做人怎麼什為了在和與或還就都很太也嗎這那哪些個多少請問該需如何樣沒不]/;
+const STOP_WORDS = ['糖尿', '尿病'];
+function aiKeywords(includeSim = true) {
+  const rows = all(`SELECT a.question, a.category FROM ai_interactions a JOIN participants p ON p.participant_id = a.participant_id WHERE 1=1 ${simFilter(includeSim)}`);
+  const dict = AI_DICT.slice().sort((a, b) => b.length - a.length);
+  const kw = new Map(), frag = new Map(), qmap = new Map();
+  for (const r of rows) {
+    let q = String(r.question || '');
+    const norm = q.replace(/[？?！!。，,\s]+$/g, '').trim();
+    if (norm) { const o = qmap.get(norm) || { question: norm, n: 0, category: r.category }; o.n++; qmap.set(norm, o); }
+    const seen = new Set();
+    for (const w of dict) {
+      const re = new RegExp(w.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'), 'gi');
+      if (re.test(q)) { if (!seen.has(w)) { kw.set(w, (kw.get(w) || 0) + 1); seen.add(w); } q = q.replace(re, '　'); }
+    }
+    // 詞典外的片段：連續中文 2–4 字
+    for (const seg of q.split(/[^一-鿿]+/).filter(x => x.length >= 2)) {
+      const local = new Set();
+      for (let n = 2; n <= 4; n++) for (let i = 0; i + n <= seg.length; i++) { const g = seg.slice(i, i + n); if (!STOP_CHARS.test(g) && !STOP_WORDS.some(w => g.includes(w))) local.add(g); }
+      for (const g of local) frag.set(g, (frag.get(g) || 0) + 1);
+    }
+  }
+  // 片段需出現 ≥3 次；與已選片段重疊 2 字以上且次數相近者視為同一詞（避免「今天天氣」「天氣如何」重複）
+  const fr = [...frag.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1] || b[0].length - a[0].length);
+  const overlap = (x, y) => { for (let i = 0; i + 2 <= x.length; i++) if (y.includes(x.slice(i, i + 2))) return true; return false; };
+  const kept = [];
+  for (const [g, n] of fr) if (!kept.some(([k, m]) => overlap(g, k) && m >= n * 0.8)) kept.push([g, n]);
+  const words = [...[...kw.entries()].map(([text, n]) => ({ text, n, source: 'dict' })), ...kept.slice(0, 30).map(([text, n]) => ({ text, n, source: 'ngram' }))]
+    .sort((a, b) => b.n - a.n).slice(0, 80);
+  const questions = [...qmap.values()].sort((a, b) => b.n - a.n).slice(0, 20);
+  return { total_questions: rows.length, words, top_questions: questions };
+}
+
+// ===== 行為序列分析（Lag Sequential Analysis, lag 1）=====
+// 把學習事件轉成行為代碼，計算相鄰行為的轉移次數與調整後殘差 Z（Bakeman & Quera），Z > 1.96 表示該轉移顯著（p < .05）
+const LSA_CODES = [
+  ['MS', '開始單元'], ['CV', '閱讀圖文'], ['WI', '互動練習'], ['QC', '作答正確'], ['QW', '作答錯誤'], ['FB', '查看回饋'],
+  ['AQ', '提問 AI'], ['AR', '閱讀 AI 回答'], ['MC', '完成單元'], ['TT', '使用朗讀']
+];
+function codeOf(e) {
+  switch (e.event_type) {
+    case 'module_started': return 'MS';
+    case 'content_viewed': return 'CV';
+    case 'widget_interaction': return 'WI';
+    case 'question_answered': return e.correct === 1 ? 'QC' : 'QW';
+    case 'feedback_viewed': return 'FB';
+    case 'ai_question_submitted': return 'AQ';
+    case 'ai_response_viewed': return 'AR';
+    case 'module_completed': return 'MC';
+    case 'tts_used': return 'TT';
+    default: return null;
+  }
+}
+function lagSequential(includeSim = true, { module = '', scope = 'all' } = {}) {
+  const codes = LSA_CODES.map(c => c[0]);
+  const idx = new Map(codes.map((c, i) => [c, i]));
+  const K = codes.length;
+  const F = Array.from({ length: K }, () => Array(K).fill(0));
+  const ev = all(`SELECT e.participant_id, e.event_type, e.module_id, e.correct FROM events e JOIN participants p ON p.participant_id = e.participant_id
+    WHERE 1=1 ${simFilter(includeSim)} ${scope === 'completed' ? 'AND p.completed_at IS NOT NULL' : ''} ORDER BY e.participant_id, e.timestamp, e.rowid`);
+  let prevPid = null, prev = null, nSeq = 0, nCodes = 0;
+  const freq = Array(K).fill(0);
+  for (const e of ev) {
+    if (module && e.module_id !== module) continue;
+    const c = codeOf(e); if (!c) continue;
+    if (e.participant_id !== prevPid) { prevPid = e.participant_id; prev = null; nSeq++; }
+    if (c === prev) continue; // 連續相同行為合併為一次
+    freq[idx.get(c)]++; nCodes++;
+    if (prev) F[idx.get(prev)][idx.get(c)]++;
+    prev = c;
+  }
+  const N = F.flat().reduce((a, b) => a + b, 0);
+  const rowT = F.map(r => r.reduce((a, b) => a + b, 0));
+  const colT = codes.map((_, j) => F.reduce((a, r) => a + r[j], 0));
+  const Z = F.map((r, i) => r.map((o, j) => {
+    if (!N || !rowT[i] || !colT[j]) return null;
+    const e = rowT[i] * colT[j] / N;
+    const v = e * (1 - rowT[i] / N) * (1 - colT[j] / N);
+    return v > 0 ? round((o - e) / Math.sqrt(v), 2) : null;
+  }));
+  const sig = [];
+  F.forEach((r, i) => r.forEach((o, j) => { if (Z[i][j] != null && Z[i][j] > 1.96 && o >= 2) sig.push({ from: codes[i], to: codes[j], n: o, z: Z[i][j] }); }));
+  sig.sort((a, b) => b.z - a.z);
+  return { codes: LSA_CODES.map(([code, label], i) => ({ code, label, n: freq[i] })), freq: F, z: Z, n_transitions: N, n_sequences: nSeq, n_codes: nCodes, significant: sig, module, scope };
 }
 
 function safeJSON(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
@@ -263,8 +400,14 @@ function exportTables(includeSim = true) {
       modules_completed: mp.filter(r => r.participant_id === p.participant_id && r.completed).length,
       learning_time_min: round(learn / 60, 2),
       total_time_min: p.completed_at && p.consent_at ? round((new Date(p.completed_at) - new Date(p.consent_at)) / 60000, 2) : null,
-      ai_question_count: aiAll.filter(a => a.participant_id === p.participant_id).length
+      ai_question_count: aiAll.filter(a => a.participant_id === p.participant_id).length,
+      retake_count: get('SELECT COUNT(*) n FROM test_retakes WHERE participant_id = ?', p.participant_id).n
     });
+    const sc = scaleScores(p.participant_id, c);
+    for (const k of [...SCALES, 'edu_satisfaction']) {
+      if (k !== 'edu_satisfaction') row[`${k}_pre_sum`] = sc[k]?.pre_sum ?? null;
+      row[`${k}_post_sum`] = sc[k]?.post_sum ?? null;
+    }
     return row;
   });
 
@@ -273,6 +416,15 @@ function exportTables(includeSim = true) {
     .filter(r => pids.has(r.participant_id))
     .map(r => ({ participant_id: r.participant_id, phase: r.phase, item_id: r.item_id, domain: itemMap.get(r.item_id)?.domain || '',
       response: r.response, correct: r.correct, time_on_task_sec: r.time_on_task, answered_at: r.answered_at }));
+  // 完成後的再測（練習，不是正式後測）：phase = retake1、retake2…
+  for (const r of all('SELECT * FROM test_retakes ORDER BY participant_id, attempt_no').filter(r => pids.has(r.participant_id))) {
+    const ans = safeJSON(r.answers) || {};
+    for (const [item_id, resp] of Object.entries(ans)) {
+      const it = itemMap.get(item_id);
+      pre_post_test.push({ participant_id: r.participant_id, phase: 'retake' + r.attempt_no, item_id, domain: it?.domain || '', response: resp,
+        correct: it ? (resp === it.answer ? 1 : 0) : null, time_on_task_sec: null, answered_at: r.completed_at });
+    }
+  }
 
   const learning_events = all('SELECT * FROM events ORDER BY timestamp, rowid').filter(r => pids.has(r.participant_id));
 
@@ -284,22 +436,30 @@ function exportTables(includeSim = true) {
     provider: a.provider, ai_response_viewed: a.response_viewed, response_length: (a.response || '').length
   }));
 
-  const seItems = c.selfEfficacy.items.map(i => i.id);
-  const satItems = c.satisfaction.items.map(i => i.id);
-  const openItems = c.satisfaction.open.map(i => i.id);
+  // 寬格式：每個量表 × 前／後測的逐題分數與總分（instrument 名稱見 README）
+  const cols = [];
+  for (const sid of ['pre', 'post', 'sat']) {
+    const sv = content.survey(sid, c); if (!sv) continue;
+    for (const d of sv.defs) cols.push({ sid, d, inst: content.storedInstrument(sid, d) });
+  }
   const questionnaires = parts.filter(p => p.consent_at).map(p => {
     const q = questionnaireScores(p.participant_id);
     const val = (inst, id) => { const r = q.raw.find(x => x.instrument === inst && x.item_id === id); return r ? r.value : ''; };
     const row = { participant_id: p.participant_id };
-    for (const id of seItems) row[id] = val('self_efficacy', id);
-    row.se_mean = q.se_mean;
-    for (const id of satItems) row[id] = val('satisfaction', id);
-    row.sus_score = q.sus_score;
-    for (const id of openItems) row[id] = val('satisfaction', id);
+    for (const { sid, d, inst } of cols) {
+      const sfx = sid === 'sat' ? '' : '_' + sid;
+      for (const it of d.items) row[it.id + sfx] = val(inst, it.id);
+      const sc = q.scales[d.instrument] || {};
+      const ph = sid === 'sat' ? 'post' : sid;
+      row[d.instrument + sfx + '_sum'] = sc[ph + '_sum'] ?? '';
+      row[d.instrument + sfx + '_mean'] = sc[ph + '_mean'] ?? '';
+      if (d.instrument === 'satisfaction') row.sus_score = q.sus_score;
+      for (const o of d.open || []) row[o.id] = val(inst, o.id);
+    }
     return row;
   });
 
   return { participants, pre_post_test, learning_events, module_performance, ai_interactions, questionnaires };
 }
 
-module.exports = { dashboard, participantList, participantDetail, exportTables, modulePerformance, questionnaireScores, round };
+module.exports = { dashboard, participantList, participantDetail, exportTables, modulePerformance, questionnaireScores, aiKeywords, lagSequential, round };

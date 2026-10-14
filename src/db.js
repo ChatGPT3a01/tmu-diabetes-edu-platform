@@ -93,6 +93,25 @@ CREATE TABLE IF NOT EXISTS questionnaires (
   created_at TEXT,
   PRIMARY KEY (participant_id, instrument, item_id)
 );
+CREATE TABLE IF NOT EXISTS test_retakes (
+  participant_id TEXT NOT NULL REFERENCES participants(participant_id) ON DELETE CASCADE,
+  attempt_no INTEGER NOT NULL,
+  score REAL,
+  n_correct INTEGER,
+  total INTEGER,
+  answers TEXT,
+  time_on_task REAL,
+  completed_at TEXT,
+  PRIMARY KEY (participant_id, attempt_no)
+);
+CREATE TABLE IF NOT EXISTS visits (
+  day TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  views INTEGER DEFAULT 1,
+  first_at TEXT,
+  last_at TEXT,
+  PRIMARY KEY (day, visitor_id)
+);
 CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY,
   pass_hash TEXT NOT NULL,
@@ -120,6 +139,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 try { db.exec('ALTER TABLE participants ADD COLUMN resume_code TEXT'); } catch { /* 已存在 */ }
 
 const now = () => new Date().toISOString();
+// 臺灣日期（UTC+8，不分夏令），用於每日瀏覽人次
+const twDay = (iso = now()) => new Date(new Date(iso).getTime() + 8 * 36e5).toISOString().slice(0, 10);
 
 function all(sql, ...p) { return db.prepare(sql).all(...p); }
 function get(sql, ...p) { return db.prepare(sql).get(...p); }
@@ -150,4 +171,4 @@ function audit(username, action, detail) {
   run('INSERT INTO audit_log (username, action, detail, at) VALUES (?,?,?,?)', username || null, action, detail ? String(detail).slice(0, 2000) : null, now());
 }
 
-module.exports = { db, all, get, run, tx, now, insertEvent, audit, EVENT_COLS, DATA_DIR, DB_PATH, BLOBS };
+module.exports = { db, all, get, run, tx, now, twDay, insertEvent, audit, EVENT_COLS, DATA_DIR, DB_PATH, BLOBS };
