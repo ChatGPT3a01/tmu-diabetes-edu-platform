@@ -45,4 +45,5 @@ textarea.code { font-family: ui-monospace, Consolas, monospace; font-size: .8rem
   body.admin .topbar { gap: .3rem; padding: .4rem 10px; }
   body.admin #who { display: none; }
   body.admin .brand img { width: 34px; height: 34px; }
+  body.admin .brand img.tmu-logo { width: auto; height: 34px; max-width: 36vw; }
 }
