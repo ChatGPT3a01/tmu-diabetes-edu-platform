@@ -172,7 +172,8 @@
   function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
   window.addEventListener('hashchange', render);
   function render() {
-    speechSynthesis?.cancel?.(); speakingBtn = null;
+    // Android App 內建瀏覽器（LINE/FB WebView）沒有 speechSynthesis，須經 window 存取才不會丟 ReferenceError
+    window.speechSynthesis?.cancel?.(); speakingBtn = null;
     const h = location.hash.replace(/^#\/?/, '') || '';
     const [name, arg] = h.split('/');
     const allowed = allowedStage();
@@ -729,7 +730,8 @@
         else { S.state = store.get('state', S.state); toast('目前離線，部分功能可能無法使用'); }
       }
     }
-    render();
+    try { render(); }
+    catch (e) { $('#main').innerHTML = '<div class="card"><h1>頁面載入發生問題</h1><p>請按瀏覽器的「重新整理」，或改用 Chrome／Safari 開啟本網址。</p><p class="muted">' + esc(e && e.message) + '</p></div>'; }
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
   }
   boot();
