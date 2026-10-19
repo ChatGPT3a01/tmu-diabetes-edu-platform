@@ -39,7 +39,7 @@ function ensureBootstrapAdmin() {
   createUser(user, pw, 'admin', '系統管理者');
   audit('system', 'bootstrap_admin', user);
   if (generated) {
-    const memo = path.join(typeof __dirname === 'string' ? __dirname : process.cwd(), '..', '..', '_帳密備忘_勿上傳.md');
+    const memo = path.join(typeof __dirname === 'string' ? __dirname : process.cwd(), '..', '..', '..', '_帳密備忘_勿上傳.md'); // 專案根目錄（F:/專案_北醫專案）
     const line = `\n## 糖尿病衛教平台 後臺管理者（${new Date().toLocaleString('zh-TW')} 自動產生）\n- 網址：/admin\n- 帳號：${user}\n- 密碼：${pw}\n- 首次登入後請至「帳號管理」修改密碼。\n`;
     try { fs.appendFileSync(memo, line, 'utf8'); console.log(`[auth] 已建立管理者帳號「${user}」，初始密碼已寫入：${memo}`); }
     catch { console.log(`[auth] 已建立管理者帳號「${user}」，備忘檔無法寫入`); }
