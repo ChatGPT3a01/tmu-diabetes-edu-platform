@@ -1,9 +1,26 @@
-// AI 智慧助理：問題分類 → 安全守門 → 回答（本機知識庫 / 可切換真正 LLM）
-// 環境變數：
-//   LLM_PROVIDER = local（預設）| openai | gemini
-//   OPENAI_API_KEY / OPENAI_MODEL（預設 gpt-5.6-terra，可選 gpt-5.6-sol、gpt-5.6-luna）
-//   GEMINI_API_KEY / GEMINI_MODEL（預設 gemini-3.5-flash，可選 gemini-3.1-pro-preview、gemini-3.1-flash-lite）
+// AI 智慧助理：問題分類 → 安全守門 → 回答（本機知識庫 / 生成式 LLM）
+// 引擎由研究者後臺「AI 設定」決定（src/settings.js）：
+//   local（規則式知識庫）| gemini | openai | groq（API 金鑰）| cli（本機 codex／gemini／claude CLI，只限 start.bat 本機執行）
+// 後臺可開放「受試者自備金鑰」：金鑰只存在受試者瀏覽器，每次提問隨請求送出，伺服器不保存
+// LLM 失敗時自動改用本機知識庫，並在 ai_interactions.provider 記錄實際使用的引擎
+const { spawn } = require('child_process');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const content = require('./content');
+const settings = require('./settings');
+
+const MODEL_OPTIONS = {
+  gemini: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'],
+  openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.5-pro'],
+  groq: ['llama-3.3-70b-versatile', 'qwen/qwen-3-32b', 'llama-3.1-8b-instant'],
+  cli: {
+    codex: ['', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+    gemini: ['', 'gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite'],
+    claude: ['', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5']
+  }
+};
+const PROVIDER_LABEL = { local: '本機衛教知識庫（規則式）', gemini: 'Google Gemini API', openai: 'OpenAI API', groq: 'Groq API', cli: '本機 CLI' };
 
 const CATEGORY_KEYWORDS = {
   hypoglycemia: ['低血糖', '15-15', '15 15', '冒冷汗', '發抖', '手抖', '方糖', '昏迷', '叫不醒', '頭暈', '巧克力', '升糖素'],
@@ -74,57 +91,123 @@ const SYSTEM_PROMPT = `你是「糖尿病互動衛教平台」的 AI 智慧助�
 3. 不得建議停藥、換藥、改藥，不得提供任何個人化藥物或胰島素劑量（包括單位數、顆數、mg）。遇到這類問題，請說明需與醫師、藥師或衛教師討論。
 4. 緊急狀況（意識不清、胸痛、呼吸困難等）請提醒立即撥打 119。
 5. 使用繁體中文與台灣用語，句子簡短、口語、適合中高齡者閱讀，200 字以內，可用條列。
-6. 結尾不必重複免責聲明（介面已顯示）。`;
+6. 結尾不必重複免責聲明（介面已顯示）。
+7. 純文字回答：不要使用 Markdown 粗體（**）、標題符號（#）或表格，不要附網址連結；條列請用「・」或數字。`;
 
-async function callOpenAI(question, moduleTitle) {
-  const key = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+const userText = (question, moduleTitle) => (moduleTitle ? `（使用者正在學習：${moduleTitle}）\n` : '') + question;
+
+// OpenAI 與 Groq 都是 Chat Completions 相容格式
+const OPENAI_BASE = { openai: 'https://api.openai.com/v1', groq: 'https://api.groq.com/openai/v1' };
+async function callOpenAICompat(provider, key, model, system, text) {
+  const res = await fetch(`${OPENAI_BASE[provider]}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: (moduleTitle ? `（使用者正在學習：${moduleTitle}）\n` : '') + question }
-      ]
-    }),
+    body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: text }] }),
     signal: AbortSignal.timeout(25000)
   });
-  if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`${provider} HTTP ${res.status}`);
   const j = await res.json();
   return j.choices?.[0]?.message?.content?.trim();
 }
 
-async function callGemini(question, moduleTitle) {
-  const key = process.env.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+async function callGemini(key, model, system, text) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ role: 'user', parts: [{ text: (moduleTitle ? `（使用者正在學習：${moduleTitle}）\n` : '') + question }] }]
-    }),
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text }] }] }),
     signal: AbortSignal.timeout(25000)
   });
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`gemini HTTP ${res.status}`);
   const j = await res.json();
   return j.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+}
+
+// 本機 CLI：提示詞一律經 stdin 傳入（不放進命令列參數），工具以唯讀／無工具模式執行
+function callCLI(tool, model, system, text) {
+  if (process.env.STORAGE === 'blobs') return Promise.reject(new Error('雲端網站無法使用 CLI'));
+  const prompt = `${system}\n\n請直接回答以下使用者問題，只輸出回答內容：\n${text}`;
+  const tmp = path.join(os.tmpdir(), `dm_ai_${process.pid}_${Date.now()}.txt`);
+  const m = model && settings.MODEL_RE.test(model) ? model : '';
+  const args = {
+    codex: ['exec', '--skip-git-repo-check', '--ephemeral', '-s', 'read-only', '-o', tmp, ...(m ? ['-m', m] : []), '-'],
+    gemini: ['-p', 'Answer', '--approval-mode', 'plan', '-o', 'text', ...(m ? ['-m', m] : [])],
+    claude: ['-p', '--no-session-persistence', '--output-format', 'text', ...(m ? ['--model', m] : [])]
+  }[tool];
+  if (!args) return Promise.reject(new Error('未知的 CLI 工具'));
+  return new Promise((resolve, reject) => {
+    // Windows 的 CLI 是 .cmd，需要經 shell 啟動；參數皆為固定值或已驗證的模型名稱
+    const child = spawn(tool, args, { shell: process.platform === 'win32', cwd: os.tmpdir(), windowsHide: true });
+    let out = '', err = '';
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`${tool} CLI 逾時`)); }, 120000);
+    child.stdout.on('data', d => { out += d; });
+    child.stderr.on('data', d => { err += d; });
+    child.on('error', e => { clearTimeout(timer); reject(e); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      let ans = out;
+      if (tool === 'codex') { try { ans = fs.readFileSync(tmp, 'utf8'); fs.unlinkSync(tmp); } catch { ans = ''; } }
+      ans = String(ans || '').replace(/\x1b\[[0-9;]*m/g, '').trim();
+      if (code !== 0 || !ans) {
+        // 常見原因轉成看得懂的說明（例如 Google 已停止 Gemini CLI 個人免費方案）
+        const hint = /IneligibleTier|UNSUPPORTED_CLIENT/.test(err) ? '：這台電腦登入的 Google 帳號已不支援 Gemini CLI，請改用 Gemini API 金鑰或 codex／claude CLI'
+          : /not logged in|login|auth/i.test(err) ? '：CLI 尚未登入，請先在這台電腦執行一次該 CLI 並登入' : '';
+        return reject(new Error(`${tool} CLI 失敗（exit ${code}）${hint || err.slice(-200)}`));
+      }
+      resolve(ans);
+    });
+    child.stdin.end(prompt);
+  });
+}
+
+// 決定這次要用的引擎：受試者自備金鑰（後臺有開放時）優先，其次後臺設定
+function resolveEngine(byok) {
+  const s = settings.get();
+  if (s.allowUserKey && byok && settings.KEY_PROVIDERS.includes(byok.provider) && typeof byok.key === 'string' && byok.key.trim().length >= 10) {
+    const model = byok.model && settings.MODEL_RE.test(byok.model) ? byok.model : s.models[byok.provider];
+    return { provider: byok.provider, model, key: byok.key.trim().slice(0, 300), source: 'user' };
+  }
+  if (s.provider === 'cli') {
+    if (process.env.STORAGE === 'blobs') return { provider: 'local', model: 'rule-based-kb', source: 'fallback' };
+    return { provider: 'cli', tool: s.cli.tool, model: s.cli.model || '', source: 'admin' };
+  }
+  if (settings.KEY_PROVIDERS.includes(s.provider)) {
+    const key = settings.keyFor(s.provider, s);
+    if (key) return { provider: s.provider, model: s.models[s.provider], key, source: 'admin' };
+  }
+  return { provider: 'local', model: 'rule-based-kb', source: 'admin' };
+}
+
+async function callEngine(eng, system, text) {
+  if (eng.provider === 'gemini') return callGemini(eng.key, eng.model, system, text);
+  if (eng.provider === 'openai' || eng.provider === 'groq') return callOpenAICompat(eng.provider, eng.key, eng.model, system, text);
+  if (eng.provider === 'cli') return callCLI(eng.tool, eng.model, system, text);
+  return null;
+}
+
+// 記錄用的引擎名稱，例如 gemini:gemini-3.5-flash、cli:codex、user-gemini:gemini-3.5-flash
+function engineLabel(eng) {
+  if (eng.provider === 'cli') return `cli:${eng.tool}${eng.model ? '/' + eng.model : ''}`;
+  if (eng.provider === 'local') return 'local';
+  return `${eng.source === 'user' ? 'user-' : ''}${eng.provider}:${eng.model}`;
 }
 
 // LLM 回覆後置檢查：若出現看似個人化劑量的內容，改用安全回覆
 const DOSE_OUT_RE = /(\d+\s*(單位|u\b|iu)|每次\s*\d+\s*(顆|錠|mg|毫克))/i;
 
 function providerInfo() {
-  const p = (process.env.LLM_PROVIDER || 'local').toLowerCase();
-  if (p === 'openai' && process.env.OPENAI_API_KEY) return { provider: 'openai', model: process.env.OPENAI_MODEL || 'gpt-5.6-terra' };
-  if (p === 'gemini' && process.env.GEMINI_API_KEY) return { provider: 'gemini', model: process.env.GEMINI_MODEL || 'gemini-3.5-flash' };
-  return { provider: 'local', model: 'rule-based-kb' };
+  const eng = resolveEngine(null);
+  return { provider: eng.provider, model: eng.provider === 'cli' ? `${eng.tool}${eng.model ? '/' + eng.model : ''}` : eng.model, label: PROVIDER_LABEL[eng.provider], generative: eng.provider !== 'local' };
 }
 
-async function ask(question, moduleId) {
+// 給受試者端：是否開放自備金鑰、目前引擎名稱（不含金鑰）
+function publicConfig() {
+  const s = settings.get();
+  const info = providerInfo();
+  return { allowUserKey: !!s.allowUserKey, engine: info.label, generative: info.generative, options: { gemini: MODEL_OPTIONS.gemini, openai: MODEL_OPTIONS.openai, groq: MODEL_OPTIONS.groq }, defaults: s.models };
+}
+
+async function ask(question, moduleId, opts = {}) {
   const c = content.load();
   const q = String(question || '').slice(0, 500);
   const category = classify(q);
@@ -132,22 +215,46 @@ async function ask(question, moduleId) {
   if (g) return { answer: c.ai.refusals[g], category, guardrail: g, provider: 'guardrail' };
   if (category === 'other' && OFFTOPIC_RE.test(q)) return { answer: c.ai.refusals.offtopic, category, guardrail: 'offtopic', provider: 'guardrail' };
 
-  const info = providerInfo();
+  const eng = opts.forceLocal ? { provider: 'local' } : resolveEngine(opts.byok);
   const mod = (c.modules || []).find(m => m.id === moduleId);
-  if (info.provider !== 'local') {
+  let llmError = null;
+  if (eng.provider !== 'local') {
     try {
-      const out = info.provider === 'openai' ? await callOpenAI(q, mod?.title) : await callGemini(q, mod?.title);
+      const raw = await callEngine(eng, SYSTEM_PROMPT, userText(q, mod?.title));
+      // 受試者畫面是純文字：去掉模型殘留的 Markdown 粗體與標題符號
+      const out = raw && raw.replace(/\*\*(.+?)\*\*/g, '$1').replace(/^#{1,6}\s*/gm, '').trim();
       if (out) {
-        if (DOSE_OUT_RE.test(out)) return { answer: c.ai.refusals.dose, category, guardrail: 'dose_output', provider: info.provider };
-        return { answer: out, category, guardrail: null, provider: info.provider };
+        if (DOSE_OUT_RE.test(out)) return { answer: c.ai.refusals.dose, category, guardrail: 'dose_output', provider: engineLabel(eng) };
+        return { answer: out, category, guardrail: null, provider: engineLabel(eng) };
       }
     } catch (e) {
+      llmError = e.message;
       console.warn('[AI] LLM 呼叫失敗，改用本機知識庫：', e.message);
     }
   }
+  const prov = llmError ? `local(fallback:${eng.provider})` : 'local';
   const local = localAnswer(q, category);
-  if (local) return { answer: local, category, guardrail: null, provider: 'local' };
-  return { answer: c.ai.refusals.offtopic, category, guardrail: 'offtopic', provider: 'local' };
+  if (local) return { answer: local, category, guardrail: null, provider: prov, llm_error: llmError };
+  return { answer: c.ai.refusals.offtopic, category, guardrail: 'offtopic', provider: prov, llm_error: llmError };
 }
 
-module.exports = { ask, classify, guard, providerInfo, CATEGORIES };
+// 後臺「測試連線」：用指定設定（或目前設定）問一題，回傳結果與耗時
+async function testEngine(cfg) {
+  const s = settings.get();
+  let eng;
+  if (cfg && cfg.provider === 'cli') eng = { provider: 'cli', tool: settings.CLI_TOOLS.includes(cfg.tool) ? cfg.tool : s.cli.tool, model: cfg.model && settings.MODEL_RE.test(cfg.model) ? cfg.model : '' };
+  else if (cfg && settings.KEY_PROVIDERS.includes(cfg.provider)) {
+    eng = { provider: cfg.provider, model: cfg.model && settings.MODEL_RE.test(cfg.model) ? cfg.model : s.models[cfg.provider], key: (cfg.key && cfg.key.trim()) || settings.keyFor(cfg.provider, s) };
+    if (!eng.key) return { ok: false, error: '尚未設定這個引擎的 API 金鑰' };
+  } else eng = resolveEngine(null);
+  if (eng.provider === 'local') return { ok: true, engine: 'local', answer: '目前使用本機衛教知識庫（不需金鑰）。' };
+  const t0 = Date.now();
+  try {
+    const answer = await callEngine(eng, SYSTEM_PROMPT, '請用一句話說明什麼是糖化血色素（HbA1c）。');
+    return { ok: !!answer, engine: engineLabel(eng), ms: Date.now() - t0, answer: answer || '' };
+  } catch (e) {
+    return { ok: false, engine: engineLabel(eng), ms: Date.now() - t0, error: e.message };
+  }
+}
+
+module.exports = { ask, classify, guard, providerInfo, publicConfig, testEngine, callEngine, MODEL_OPTIONS, PROVIDER_LABEL, CATEGORIES };

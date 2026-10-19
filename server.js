@@ -11,6 +11,8 @@ const stats = require('./src/stats');
 const exporter = require('./src/exporter');
 const sim = require('./src/simulate');
 const aiSvc = require('./src/ai');
+const settingsSvc = require('./src/settings');
+const formsExport = require('./src/formsexport');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3100);
@@ -147,8 +149,14 @@ app.post('/api/p/test/retake', participantAuth, (req, res) => {
   res.json(P.retakeTest(req.p.participant_id, req.sid, req.body || {}));
 });
 
+// AI 設定（受試者端）：是否開放自備金鑰、目前引擎名稱；不含任何金鑰
+app.get('/api/p/ai/config', participantAuth, (req, res) => res.json(aiSvc.publicConfig()));
+
 app.post('/api/p/ai', participantAuth, wrap(async (req, res) => {
-  const r = await P.askAI(req.p.participant_id, req.sid, { question: req.body?.question, module_id: req.body?.module_id });
+  // byok＝受試者自備金鑰（後臺開放時才會使用），只用於這次請求，不寫入資料庫
+  const b = req.body?.byok;
+  const byok = b && typeof b === 'object' ? { provider: String(b.provider || ''), model: String(b.model || ''), key: String(b.key || '') } : null;
+  const r = await P.askAI(req.p.participant_id, req.sid, { question: req.body?.question, module_id: req.body?.module_id, byok });
   res.json(r);
 }));
 
@@ -221,6 +229,11 @@ app.get('/api/admin/export/:name', R_ANY, wrap(async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="dm_research_${stamp}.xlsx"`);
     return res.send(Buffer.from(buf));
   }
+  if (name === 'google-forms.gs') {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="google_forms_${stamp}.gs"`);
+    return res.send(formsExport.buildAppsScript());
+  }
   const m = /^([a-z_]+)\.csv$/.exec(name);
   if (!m || !exporter.TABLES.includes(m[1])) return res.status(404).json({ error: '未知的資料表' });
   const rows = stats.exportTables(sim)[m[1]];
@@ -292,13 +305,25 @@ app.put('/api/admin/content', R_ADMIN, (req, res) => {
   res.json({ ok: true, backup: stamp });
 });
 
+// AI 設定（研究者後臺）：引擎、模型、金鑰（遮罩）、是否開放受試者自備金鑰
+app.get('/api/admin/ai-settings', R_ADMIN, (req, res) => res.json({ settings: settingsSvc.publicView(), options: aiSvc.MODEL_OPTIONS, labels: aiSvc.PROVIDER_LABEL, current: aiSvc.providerInfo() }));
+app.put('/api/admin/ai-settings', R_ADMIN, (req, res) => {
+  const body = req.body || {};
+  const v = settingsSvc.save(body, req.user.username);
+  const changedKeys = Object.entries(body.keys || {}).filter(([, k]) => k === null || (typeof k === 'string' && k.trim())).map(([p, k]) => `${p}:${k === null ? '清除' : '更新'}`);
+  audit(req.user.username, 'update_ai_settings', `provider=${v.provider} allowUserKey=${v.allowUserKey}${changedKeys.length ? ' keys=' + changedKeys.join(',') : ''}`);
+  res.json({ settings: v, current: aiSvc.providerInfo() });
+});
+app.post('/api/admin/ai-test', R_ADMIN, wrap(async (req, res) => {
+  const r = await aiSvc.testEngine(req.body || null);
+  audit(req.user.username, 'test_ai', `${r.engine || ''} ok=${r.ok}`);
+  res.json(r);
+}));
+
 app.get('/api/admin/system', R_ADMIN, (req, res) => {
   res.json({
     ai: aiSvc.providerInfo(),
-    ai_options: {
-      openai: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
-      gemini: ['gemini-3.5-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite']
-    },
+    ai_options: aiSvc.MODEL_OPTIONS,
     db: { path: DB_PATH, participants: get('SELECT COUNT(*) n FROM participants').n, events: get('SELECT COUNT(*) n FROM events').n },
     node: process.version
   });

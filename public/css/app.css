@@ -73,7 +73,13 @@ p { margin: 0 0 .8em; }
 .brand { display: flex; align-items: center; gap: .5rem; font-weight: 700; color: var(--brand); text-decoration: none; min-width: 0; }
 .brand img { width: 40px; height: 40px; flex: none; }
 .brand img.tmu-logo { width: auto; height: 44px; max-width: 46vw; object-fit: contain; background: #fff; border-radius: 8px; padding: 2px 4px; box-sizing: content-box; }
-@media (max-width: 599px) { .brand span { display: none; } .brand img.tmu-logo { height: 40px; } }
+@media (max-width: 599px) {
+  .brand { flex: none; } .brand span { display: none; } .brand img.tmu-logo { height: 40px; max-width: none; }
+  .topbar #pid-chip { display: none; }
+}
+@media (max-width: 360px) { .topbar { padding: .4rem 10px; } .tools { gap: .25rem; } .tool-btn { min-width: 44px; min-height: 44px; padding: 0 .2rem; font-size: .8rem; } }
+@media (max-width: 340px) { .brand img.tmu-logo { height: 34px; } }
+.pid-line { font-size: .85rem; color: var(--ink-2); margin-bottom: .2rem; }
 .brand span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; }
 .tools { margin-left: auto; display: flex; gap: .35rem; flex: none; }
 .tool-btn {

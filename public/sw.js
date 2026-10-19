@@ -1,6 +1,6 @@
 // PWA Service Worker：靜態檔快取（可離線開啟）；研究 API 一律走網路，不快取
 // 使用相對路徑，可同時在網站根目錄與 GitHub Pages 子路徑運作
-const CACHE = 'dm-edu-v9';
+const CACHE = 'dm-edu-v10';
 const SHELL = ['./', 'index.html', 'config.js', 'css/app.css', 'js/app.js', 'js/widgets.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/tmu-logo.png', 'vendor/chart.umd.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
@@ -17,6 +17,8 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== location.origin || url.pathname.includes('/admin')) return;
+  // 預錄語音直接走網路（音檔用 Range 請求，經快取在 iPhone Safari 可能無法播放）
+  if (url.pathname.includes('/audio/')) return;
   // config.js 網路優先（後端網址變更時立即生效）；其他靜態檔先回快取、背景更新
   if (url.pathname.endsWith('/config.js')) {
     e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));

@@ -106,24 +106,46 @@
     document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
   }
 
-  // ---------- 朗讀（Web Speech API） ----------
-  let speakingBtn = null;
+  // ---------- 朗讀：優先播放預錄 AI 語音（audio/<雜湊>.mp3），沒有音檔時用瀏覽器朗讀（Web Speech API） ----------
+  // 雜湊算法與 scripts/gen_audio.js 相同（FNV-1a 32 位元），衛教內容在後臺被修改後，該段自動改回瀏覽器朗讀
+  let AUDIO = new Set();
+  const ttsClean = t => String(t).replace(/[①-⑧]/g, '');
+  const ttsHash = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
+  const hasSpeech = () => 'speechSynthesis' in window;
+  let speakingBtn = null, player = null;
   function ttsBtn(text) {
-    if (!('speechSynthesis' in window)) return '';
-    return `<button class="tts" data-tts="${esc(text)}" aria-pressed="false" aria-label="朗讀這段內容">🔊 朗讀</button>`;
+    const recorded = AUDIO.has(ttsHash(ttsClean(text)));
+    if (!recorded && !hasSpeech()) return '';
+    return `<button class="tts" data-tts="${esc(text)}" aria-pressed="false" aria-label="播放這段內容的語音">🔊 ${recorded ? '聽語音' : '朗讀'}</button>`;
+  }
+  function stopTTS() {
+    if (player) { player.pause(); player = null; }
+    window.speechSynthesis?.cancel?.();
+    if (speakingBtn) speakingBtn.setAttribute('aria-pressed', 'false');
+    speakingBtn = null;
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-tts]'); if (!b) return;
-    speechSynthesis.cancel();
-    if (speakingBtn === b) { b.setAttribute('aria-pressed', 'false'); speakingBtn = null; return; }
-    if (speakingBtn) speakingBtn.setAttribute('aria-pressed', 'false');
-    const u = new SpeechSynthesisUtterance(b.dataset.tts.replace(/[①-⑧]/g, ''));
-    u.lang = 'zh-TW'; u.rate = 0.9;
-    const v = speechSynthesis.getVoices().find(v => /zh[-_]TW/i.test(v.lang)); if (v) u.voice = v;
-    u.onend = () => { b.setAttribute('aria-pressed', 'false'); speakingBtn = null; };
+    const same = speakingBtn === b;
+    stopTTS();
+    if (same) return;
+    const text = ttsClean(b.dataset.tts), h = ttsHash(text);
+    const done = () => { if (speakingBtn === b) { b.setAttribute('aria-pressed', 'false'); speakingBtn = null; player = null; } };
     b.setAttribute('aria-pressed', 'true'); speakingBtn = b;
-    speechSynthesis.speak(u);
-    log({ event_type: 'tts_used', module_id: currentModule, response: b.dataset.tts.slice(0, 40) });
+    const speak = () => {
+      if (!hasSpeech()) { done(); toast('這台裝置無法播放語音'); return; }
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-TW'; u.rate = 0.9;
+      const v = speechSynthesis.getVoices().find(v => /zh[-_]TW/i.test(v.lang)); if (v) u.voice = v;
+      u.onend = done;
+      speechSynthesis.speak(u);
+    };
+    if (AUDIO.has(h)) {
+      player = new Audio(`audio/${h}.mp3`);
+      player.onended = done;
+      player.play().catch(() => { player = null; if (speakingBtn === b) speak(); });
+    } else speak();
+    log({ event_type: 'tts_used', module_id: currentModule, response: b.dataset.tts.slice(0, 40), extra: { audio: AUDIO.has(h) ? 'recorded' : 'speech' } });
   });
 
   // ---------- 階段與進度 ----------
@@ -178,7 +200,8 @@
       <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="整體學習進度"><i style="width:${pct}%"></i></div>`;
     // 登入前不顯示進度
     $('#progress-mobile').hidden = !S.token; $('#side').hidden = !S.token;
-    $('#progress-mobile').innerHTML = label;
+    // 手機頂部列放不下 logo＋編號＋工具鈕，編號改顯示在進度列（避免蓋住 logo）
+    $('#progress-mobile').innerHTML = (S.pid ? `<div class="pid-line">編號 ${esc(S.pid)}</div>` : '') + label;
     $('#side').innerHTML = `<div class="card">${label}</div><div class="card"><ol class="stepper">${steps}</ol>${S.pretestDone && S.surveys.has('pre') ? '<p class="muted step-hint">可點選有底線的項目切換頁面</p>' : ''}</div>`;
     $('#pid-chip').textContent = S.pid ? `編號 ${S.pid}` : '';
     $$('[data-nav]').forEach(a => a.addEventListener('click', () => log({ event_type: 'nav_click', item_id: a.dataset.nav })));
@@ -193,7 +216,7 @@
   function render() {
     if (!S.content) return; // 內容尚未載入（網路較慢時切換網址），載入後 boot() 會再渲染
     // Android App 內建瀏覽器（LINE/FB WebView）沒有 speechSynthesis，須經 window 存取才不會丟 ReferenceError
-    window.speechSynthesis?.cancel?.(); speakingBtn = null;
+    stopTTS();
     const h = location.hash.replace(/^#\/?/, '') || '';
     const [name, arg] = h.split('/');
     const allowed = allowedStage();
@@ -506,7 +529,8 @@
       const um = { role: 'user', text: q }; hist.push(um); addMsg(um);
       const typing = document.createElement('div'); typing.className = 'typing'; typing.textContent = 'AI 正在整理回答…'; chat.appendChild(typing);
       try {
-        const r = await api('/api/p/ai', { question: q, module_id: moduleId });
+        const byok = store.get('byok');
+        const r = await api('/api/p/ai', { question: q, module_id: moduleId, ...(byok && byok.key ? { byok } : {}) });
         typing.remove();
         const bm = { role: 'bot', text: r.answer, guard: !!r.guardrail, iid: r.interaction_id }; hist.push(bm); addMsg(bm, true);
       } catch (e) { typing.remove(); addMsg({ role: 'bot', text: '抱歉，目前無法連線到 AI 智慧助理，請稍後再試。（' + e.message + '）' }); }
@@ -657,14 +681,42 @@
     return pages;
   }
 
+  // 受試者自備 AI 金鑰（研究者後臺開放時才顯示）：金鑰只存在這台裝置的瀏覽器
+  async function byokPanel(box) {
+    let cfg; try { cfg = await api('/api/p/ai/config', null, 'GET'); } catch { return; }
+    if (!cfg.allowUserKey) { if (store.get('byok')) store.del('byok'); return; }
+    const NAMES = { gemini: 'Google Gemini', openai: 'OpenAI（ChatGPT）', groq: 'Groq' };
+    const draw = () => {
+      const cur = store.get('byok');
+      box.innerHTML = `<details class="card"><summary style="cursor:pointer;font-weight:700">🔑 使用自己的 AI 金鑰（選填）${cur ? `<span class="badge">使用中：${esc(NAMES[cur.provider])}</span>` : ''}</summary>
+        <p class="muted">目前 AI 引擎：${esc(cfg.engine)}。如果您有自己的 API 金鑰，可以在這裡輸入；金鑰只存在這台裝置，不會被研究團隊保存。</p>
+        <label>AI 服務<br><select class="input" id="bk-p">${Object.keys(NAMES).map(p => `<option value="${p}"${cur?.provider === p ? ' selected' : ''}>${NAMES[p]}</option>`).join('')}</select></label>
+        <label style="display:block;margin-top:.6rem">模型<br><select class="input" id="bk-m"></select></label>
+        <label style="display:block;margin-top:.6rem">API 金鑰<br><input class="input" id="bk-k" type="password" autocomplete="off" placeholder="${cur ? '已儲存，重新輸入可更換' : '貼上您的金鑰'}"></label>
+        <div class="row" style="margin-top:.7rem"><button class="btn" id="bk-save">儲存</button>${cur ? '<button class="btn ghost" id="bk-del">清除我的金鑰</button>' : ''}</div></details>`;
+      const fillM = () => { const p = $('#bk-p', box).value; $('#bk-m', box).innerHTML = cfg.options[p].map(m => `<option${m === (cur?.provider === p ? cur.model : cfg.defaults[p]) ? ' selected' : ''}>${esc(m)}</option>`).join(''); };
+      fillM(); $('#bk-p', box).addEventListener('change', fillM);
+      $('#bk-save', box).addEventListener('click', () => {
+        const k = $('#bk-k', box).value.trim();
+        if (!k && !cur) { toast('請先輸入金鑰'); return; }
+        store.set('byok', { provider: $('#bk-p', box).value, model: $('#bk-m', box).value, key: k || cur.key });
+        log({ event_type: 'widget_interaction', item_id: 'byok', response: $('#bk-p', box).value });
+        toast('已儲存，之後的提問會使用您的金鑰'); draw();
+      });
+      const del = $('#bk-del', box); if (del) del.addEventListener('click', () => { store.del('byok'); toast('已清除'); draw(); });
+    };
+    draw();
+  }
+
   // ---------- AI 智慧助理頁 ----------
   routes.ai = (el) => {
     const cats = S.content.modules.map(m => m.aiPrompts[0]);
     const all8 = S.modulesDone.size >= 8;
     el.innerHTML = `<h1>🤖 AI 智慧助理</h1><p class="lead">想問什麼都可以，例如血糖、飲食、運動、低血糖、足部照護或藥物安全的一般原則。</p>
-      <div class="card"><div id="cb"></div></div>
+      <div class="card"><div id="cb"></div></div><div id="byok"></div>
       <div class="actions sticky">${all8 && !S.posttestDone ? '<a class="btn ghost" href="#/hub">單元列表</a><button class="btn" id="to-post">前往知識後測 →</button>' : S.completed ? '<a class="btn ghost" href="#/hub">單元列表</a><a class="btn" href="#/done">回到學習成果</a>' : '<a class="btn block secondary" href="#/hub">← 回到單元列表</a>'}</div>`;
     chatBlock($('#cb', el), null, cats);
+    byokPanel($('#byok', el));
     const tp = $('#to-post');
     if (tp) tp.addEventListener('click', () => { S.state.aiDone = true; S.state.stage = 'posttest'; saveState(); go('#/posttest'); });
   };
@@ -838,7 +890,9 @@
     $('#btn-fs-down').addEventListener('click', () => { const v = Math.max(1, store.get('fs', 2) - 1); store.set('fs', v); applyPrefs(); log({ event_type: 'font_size_changed', response: v }); });
     $('#btn-fs-up').addEventListener('click', () => { const v = Math.min(4, store.get('fs', 2) + 1); store.set('fs', v); applyPrefs(); log({ event_type: 'font_size_changed', response: v }); });
     $('#btn-contrast').addEventListener('click', () => { store.set('contrast', store.get('contrast') === 'high' ? 'normal' : 'high'); applyPrefs(); });
-    try { const cr = await fetch(API + '/api/content'); if (!cr.ok) throw new Error('HTTP ' + cr.status); S.content = await cr.json(); }
+    // 預錄語音清單：載入失敗不影響使用（改用瀏覽器朗讀）
+    const audioReady = fetch('audio/manifest.json').then(r => r.ok ? r.json() : null).then(j => { if (j && Array.isArray(j.files)) AUDIO = new Set(j.files); }).catch(() => { });
+    try { const cr = await fetch(API + '/api/content'); if (!cr.ok) throw new Error('HTTP ' + cr.status); S.content = await cr.json(); await audioReady; }
     catch { $('#main').innerHTML = '<div class="card"><h1>無法載入內容</h1><p>請確認網路連線後重新整理頁面。伺服器若閒置較久，第一次開啟可能需要約 1 分鐘喚醒，請稍候再試。</p></div>'; return; }
     document.title = S.content.meta.shortTitle;
     // 每日瀏覽人次：匿名訪客 id（與編號無關）

@@ -307,7 +307,11 @@
     el.innerHTML = `<h1>資料匯出</h1><p class="note">匿名原始資料（無姓名等可識別資訊）。CSV 為 UTF-8（含 BOM），可直接以 Excel、SPSS、R（readr::read_csv）、Python（pandas.read_csv）開啟。目前設定：<b>${incSim() === '1' ? '含模擬資料' : '僅真實受試者'}</b>（可在頂端切換）。</p>
       <div class="card"><div class="row"><div class="grow"><h2 style="margin:0">📗 Excel 一次匯出（6 個工作表 + README）</h2><span class="note">participants、pre_post_test、learning_events、module_performance、ai_interactions、questionnaires</span></div>
         <a class="btn" href="/api/admin/export/all.xlsx${q}" download>下載 Excel (.xlsx)</a></div></div>
-      <div class="export-grid">${tables.map(([k, n, d]) => `<div class="card"><h3 style="margin:0">${n}</h3><code>${k}.csv</code><span class="note">${d}</span><a class="btn secondary small" href="/api/admin/export/${k}.csv${q}" download>下載 CSV</a></div>`).join('')}</div>`;
+      <div class="export-grid">${tables.map(([k, n, d]) => `<div class="card"><h3 style="margin:0">${n}</h3><code>${k}.csv</code><span class="note">${d}</span><a class="btn secondary small" href="/api/admin/export/${k}.csv${q}" download>下載 CSV</a></div>`).join('')}</div>
+      <div class="card"><div class="row"><div class="grow"><h2 style="margin:0">📝 問卷匯出成 Google 表單（傳統組用）</h2>
+        <span class="note">下載一支 Google Apps Script，貼到 <b>script.google.com</b> 執行 <code>createAllForms</code>，就會自動建立「前測（基本資料＋知識前測＋前測問卷）」「後測」「滿意度問卷」3 份 Google 表單與回覆試算表。題目與平台目前版本相同；知識測驗為測驗模式（每題 10 分）；量表題回覆為 1–5 數字，可與平台資料合併分析。</span></div>
+        <a class="btn" href="/api/admin/export/google-forms.gs" download>下載 Google 表單產生程式 (.gs)</a></div>
+        <ol class="note" style="margin:.6rem 0 0"><li>開啟 script.google.com →「新專案」</li><li>刪除預設內容，貼上下載的檔案內容 → 儲存</li><li>函式選單選 <code>createAllForms</code> → 執行 → 授權自己的 Google 帳號</li><li>到「執行記錄」複製 3 份表單的填答網址</li></ol></div>`;
   };
 
   R.account = async (el) => {
@@ -368,23 +372,69 @@
   R.system = async (el) => {
     const s = await api('/api/admin/system');
     el.innerHTML = `<h1>系統與模擬資料</h1>
-      <div class="grid-2"><div class="card"><h2>AI 智慧助理設定</h2>
-        <p>目前供應者：<b>${esc(s.ai.provider)}</b>（模型：${esc(s.ai.model)}）</p>
-        <p class="note">預設為本機規則式知識庫（不需金鑰、可離線）。要串接真正 LLM，請在伺服器以環境變數設定後重啟：</p>
-        <pre class="card soft" style="white-space:pre-wrap;font-size:.8rem">LLM_PROVIDER=gemini
-GEMINI_API_KEY=（金鑰）
-GEMINI_MODEL=${s.ai_options.gemini.join(' | ')}
-
-LLM_PROVIDER=openai
-OPENAI_API_KEY=（金鑰）
-OPENAI_MODEL=${s.ai_options.openai.join(' | ')}</pre>
-        <p class="note">無論使用哪個供應者，伺服器端都會先經過安全守門（禁止診斷、停藥／改藥、個人化劑量；緊急狀況導向 119），LLM 回覆若出現劑量數字也會被攔截。</p></div>
+      <div class="grid-2"><div class="card"><h2>AI 智慧助理</h2>
+        <p>目前引擎：<b>${esc(s.ai.label)}</b>（${esc(s.ai.model)}）</p>
+        <p class="note">引擎、模型與 API 金鑰請到左側「🧠 AI 設定」修改，不需重新部署。</p>
+        <a class="btn small" href="#/aiset">前往 AI 設定</a></div>
       <div class="card"><h2>資料庫</h2><p>受試者：${s.db.participants}｜事件：${s.db.events}</p><p class="note">${esc(s.db.path)}｜Node ${esc(s.node)}</p>
         <h2>模擬資料（MVP 測試用）</h2><p class="note">模擬受試者編號為 SIMxxxx，is_simulated=1，可隨時清除，不影響真實資料。</p>
         <div class="row"><input id="sn" class="input" type="number" min="1" max="200" value="20" style="max-width:120px"><button class="btn" id="sim">產生模擬受試者</button></div>
         <div class="row" style="margin-top:.6rem"><button class="btn warn small" id="clr">清除全部模擬資料</button></div></div></div>`;
     $('#sim').addEventListener('click', async () => { const b = $('#sim'); b.disabled = true; b.textContent = '產生中…'; try { const r = await api('/api/admin/simulate', { method: 'POST', body: { n: +$('#sn').value } }); toast(`已產生 ${r.created} 位`); render(); } catch (e) { toast(e.message); b.disabled = false; } });
     $('#clr').addEventListener('click', async () => { if (!confirm('確定清除全部模擬資料？')) return; const r = await api('/api/admin/simulated', { method: 'DELETE' }); toast(`已清除 ${r.deleted} 位`); render(); });
+  };
+
+  // AI 設定：引擎／模型／金鑰／受試者自備金鑰；金鑰只送到伺服器，畫面只顯示末 4 碼
+  R.aiset = async (el) => {
+    const d = await api('/api/admin/ai-settings');
+    const s = d.settings, O = d.options, L = d.labels;
+    const KP = ['gemini', 'openai', 'groq'];
+    const KEY_HELP = { gemini: 'Google AI Studio 取得（aistudio.google.com）', openai: 'OpenAI Platform 取得（platform.openai.com）', groq: 'Groq Console 取得（console.groq.com，有免費額度）' };
+    const opt = (list, v) => list.map(m => `<option value="${esc(m)}"${m === v ? ' selected' : ''}>${esc(m || '（CLI 預設模型）')}</option>`).join('');
+    const engines = ['local', ...KP, ...(s.cliAvailable ? ['cli'] : [])];
+    el.innerHTML = `<h1>AI 設定</h1>
+      <p class="note">目前實際使用：<b>${esc(d.current.label)}</b>（${esc(d.current.model)}）${s.updated_at ? `｜最後修改 ${fmtTime(s.updated_at)} by ${esc(s.updated_by)}` : ''}</p>
+      <div class="card"><h2>1. 選擇 AI 引擎</h2>
+        <div class="row" role="radiogroup" aria-label="AI 引擎" style="flex-wrap:wrap">${engines.map(p => `<label class="opt" style="width:auto"><input type="radio" name="prov" value="${p}"${p === s.provider ? ' checked' : ''}> ${esc(L[p])}${p !== 'local' && p !== 'cli' && !s.keys[p].set ? '（尚未設定金鑰）' : ''}</label>`).join('')}</div>
+        ${s.cliAvailable ? '' : '<p class="note">「本機 CLI」只在本機執行（app\\start.bat）時可用，雲端網站不顯示。</p>'}
+        <p class="note">選了 API 引擎但沒有金鑰、或連線失敗時，系統會自動改用本機衛教知識庫回答，受試者不會看到錯誤；AI 使用分析會記錄實際使用的引擎。</p></div>
+      ${KP.map(p => `<div class="card"><h2>${esc(L[p])}</h2>
+        <div class="grid-2"><label>模型<br><select class="input" data-model="${p}">${opt(O[p], s.models[p])}${O[p].includes(s.models[p]) ? '' : `<option selected>${esc(s.models[p])}</option>`}</select></label>
+        <label>API 金鑰 ${s.keys[p].set ? `<span class="badge">${esc(s.keys[p].label)}${s.keys[p].source === 'env' ? '・環境變數' : ''}</span>` : '<span class="note">未設定</span>'}<br>
+          <input class="input" type="password" autocomplete="off" data-key="${p}" placeholder="${s.keys[p].set ? '留空＝不變更' : '貼上金鑰'}"></label></div>
+        <p class="note">${KEY_HELP[p]}</p>
+        <div class="row"><button class="btn ghost small" data-test="${p}">測試連線</button>${s.keys[p].source === 'admin' ? `<button class="btn warn small" data-clear="${p}">清除此金鑰</button>` : ''}<span class="note" data-res="${p}"></span></div></div>`).join('')}
+      ${s.cliAvailable ? `<div class="card"><h2>本機 CLI（Codex／Gemini／Claude）</h2>
+        <p class="note">使用這台電腦已登入的 CLI 帳號回答，不需 API 金鑰；每題約 10–60 秒，適合課堂示範或本機測試，不適合多人同時使用。</p>
+        <div class="grid-2"><label>CLI 工具<br><select class="input" id="cli-tool">${['codex', 'gemini', 'claude'].map(t => `<option value="${t}"${t === s.cli.tool ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label>模型<br><select class="input" id="cli-model"></select></label></div>
+        <div class="row"><button class="btn ghost small" data-test="cli">測試連線</button><span class="note" data-res="cli"></span></div></div>` : ''}
+      <div class="card"><h2>2. 受試者自備金鑰</h2>
+        <label class="opt" style="width:auto"><input type="checkbox" id="allow-user"${s.allowUserKey ? ' checked' : ''}> 開放受試者在「AI 智慧助理」頁輸入自己的 API 金鑰（Gemini／OpenAI／Groq）</label>
+        <p class="note">受試者的金鑰只存在他自己的瀏覽器，每次提問時隨請求送出、伺服器不保存。沒有輸入的人照常使用上方設定的引擎。</p></div>
+      <div class="actions"><button class="btn" id="save-ai">儲存 AI 設定</button><span id="ai-msg" class="note"></span></div>`;
+    const fillCli = () => { const t = $('#cli-tool'); if (t) $('#cli-model').innerHTML = opt(O.cli[t.value], t.value === s.cli.tool ? s.cli.model : ''); };
+    if ($('#cli-tool')) { fillCli(); $('#cli-tool').addEventListener('change', fillCli); }
+    $$('[data-test]', el).forEach(b => b.addEventListener('click', async () => {
+      const p = b.dataset.test, out = $(`[data-res="${p}"]`, el);
+      const body = p === 'cli' ? { provider: 'cli', tool: $('#cli-tool').value, model: $('#cli-model').value } : { provider: p, model: $(`[data-model="${p}"]`, el).value, key: $(`[data-key="${p}"]`, el).value };
+      b.disabled = true; out.textContent = '測試中…（CLI 可能需要 1 分鐘）';
+      try { const r = await api('/api/admin/ai-test', { method: 'POST', body }); out.textContent = r.ok ? `✅ 成功（${r.ms} ms）：${r.answer.slice(0, 80)}` : `❌ 失敗：${r.error}`; }
+      catch (e) { out.textContent = '❌ ' + e.message; }
+      b.disabled = false;
+    }));
+    $$('[data-clear]', el).forEach(b => b.addEventListener('click', async () => {
+      if (!confirm('確定清除這組金鑰？')) return;
+      await api('/api/admin/ai-settings', { method: 'PUT', body: { keys: { [b.dataset.clear]: null } } }); toast('已清除'); render();
+    }));
+    $('#save-ai').addEventListener('click', async () => {
+      const body = { provider: $('input[name="prov"]:checked', el)?.value, models: {}, keys: {}, allowUserKey: $('#allow-user').checked };
+      KP.forEach(p => { body.models[p] = $(`[data-model="${p}"]`, el).value; const k = $(`[data-key="${p}"]`, el).value.trim(); if (k) body.keys[p] = k; });
+      if ($('#cli-tool')) body.cli = { tool: $('#cli-tool').value, model: $('#cli-model').value };
+      if (body.provider !== 'local' && body.provider !== 'cli' && !s.keys[body.provider].set && !body.keys[body.provider] && !confirm('這個引擎還沒有金鑰，儲存後會先使用本機知識庫。仍要儲存？')) return;
+      try { const r = await api('/api/admin/ai-settings', { method: 'PUT', body }); toast(`已儲存，目前使用：${r.current.label}`); render(); }
+      catch (e) { $('#ai-msg').textContent = e.message; }
+    });
   };
 
   R.audit = async (el) => {

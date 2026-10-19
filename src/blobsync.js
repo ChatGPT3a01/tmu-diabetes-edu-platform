@@ -9,11 +9,13 @@
 //   s/<sid>              研究者登入 session
 //   a/<時間>_<id>_<亂數>  操作稽核紀錄（只新增）
 //   content/current、content/backup/<stamp>   後臺修改後的衛教內容與備份
+//   settings/ai          AI 設定（引擎、模型、API 金鑰；金鑰只在伺服器端使用）
 //   v/<臺灣日期>/<訪客id>  每日瀏覽人次（匿名訪客，每人每天一筆）
 const crypto = require('crypto');
 const { db, all, twDay } = require('./db');
 const content = require('./content');
 const auth = require('./auth');
+const settings = require('./settings');
 
 const P_TABLES = ['participants', 'sessions', 'events', 'test_responses', 'ai_interactions', 'questionnaires', 'test_retakes'];
 const ALL_TABLES = [...P_TABLES, 'users', 'admin_sessions', 'audit_log', 'visits'];
@@ -99,15 +101,19 @@ async function begin(store, req) {
   clearAll();
   content.setOverride(null);
   content.takePendingSave();
+  settings.setOverride(null);
+  settings.takePendingSave();
   S = { store, loaded: new Map(), stubs: new Set(), auditMax: 0 };
   const path = req.path;
   // 衛教內容覆寫與受試者索引並行讀取，減少每次請求的等待
   const token = path.startsWith('/api/p/') ? req.headers['x-participant-token'] : null;
-  const [co, idx] = await Promise.all([
+  const [co, ai, idx] = await Promise.all([
     store.get('content/current', { type: 'json' }),
+    store.get('settings/ai', { type: 'json' }),
     token ? store.get('t/' + sha(token), { type: 'json' }) : null
   ]);
   if (co) content.setOverride(co);
+  if (ai) settings.setOverride(ai);
 
   if (path.startsWith('/api/admin')) {
     await loadKeyed('u/', 'users');
@@ -184,6 +190,9 @@ async function commit() {
 
   const audits = all('SELECT * FROM audit_log WHERE id > ? ORDER BY id', S.auditMax);
   await Promise.all(audits.map(a => S.store.setJSON(`a/${a.at}_${String(a.id).padStart(6, '0')}_${crypto.randomBytes(3).toString('hex')}`, a)));
+
+  const st = settings.takePendingSave();
+  if (st) await S.store.setJSON('settings/ai', st);
 
   const cs = content.takePendingSave();
   if (cs) {

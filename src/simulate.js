@@ -104,7 +104,7 @@ async function simulate(n = 30, seed = Date.now()) {
       for (let j = 0; j < k; j++) {
         const cat = R() < 0.8 ? m.aiCategory : pick(Object.keys(SAMPLE_Q));
         const q = pick(SAMPLE_Q[cat]);
-        const r = await P.askAI(pid, sid, { question: q, module_id: m.id }, ts(15 + R() * 30), await aiSvc.ask(q, m.id));
+        const r = await P.askAI(pid, sid, { question: q, module_id: m.id }, ts(15 + R() * 30), await aiSvc.ask(q, m.id, { forceLocal: true }));
         if (R() < 0.9) P.markAIViewed(pid, sid, r.interaction_id, Math.round(10 + R() * 40), ts(10 + R() * 40));
         aiCount++;
       }
@@ -116,7 +116,7 @@ async function simulate(n = 30, seed = Date.now()) {
     const extra = aiAffinity > 0.6 ? 1 + Math.floor(R() * 4) : R() < 0.4 ? 1 : 0;
     for (let j = 0; j < extra; j++) {
       const q = pick(SAMPLE_Q[pick(Object.keys(SAMPLE_Q))]);
-      const r = await P.askAI(pid, sid, { question: q, module_id: null }, ts(20 + R() * 40), await aiSvc.ask(q, null));
+      const r = await P.askAI(pid, sid, { question: q, module_id: null }, ts(20 + R() * 40), await aiSvc.ask(q, null, { forceLocal: true }));
       if (R() < 0.9) P.markAIViewed(pid, sid, r.interaction_id, Math.round(10 + R() * 30), ts(10 + R() * 30));
       aiCount++;
     }

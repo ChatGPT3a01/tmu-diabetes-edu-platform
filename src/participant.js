@@ -235,15 +235,15 @@ function retakeTest(pid, sid, { answers, time_on_task }, ts) {
   };
 }
 
-async function askAI(pid, sid, { question, module_id }, ts, overrideAnswer) {
+async function askAI(pid, sid, { question, module_id, byok }, ts, overrideAnswer) {
   const q = String(question || '').trim();
   if (!q) { const e = new Error('請輸入問題'); e.status = 400; throw e; }
-  const r = overrideAnswer || await aiSvc.ask(q, module_id);
+  const r = overrideAnswer || await aiSvc.ask(q, module_id, { byok });
   const interaction_id = uid();
   const t = ts || now();
   run('INSERT INTO ai_interactions (interaction_id, participant_id, session_id, module_id, question, category, guardrail, provider, response, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
     interaction_id, pid, sid, module_id || null, q.slice(0, 500), r.category, r.guardrail || null, r.provider, r.answer, t);
-  logEvent(pid, sid, { event_type: 'ai_question_submitted', module_id, item_id: interaction_id, ai_question: q, ai_question_category: r.category, extra: { guardrail: r.guardrail, provider: r.provider } }, t, true);
+  logEvent(pid, sid, { event_type: 'ai_question_submitted', module_id, item_id: interaction_id, ai_question: q, ai_question_category: r.category, extra: { guardrail: r.guardrail, provider: r.provider, ...(r.llm_error ? { llm_error: String(r.llm_error).slice(0, 200) } : {}) } }, t, true);
   return { interaction_id, answer: r.answer, category: r.category, guardrail: r.guardrail };
 }
 

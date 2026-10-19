@@ -1,0 +1,704 @@
+{
+ "voice": "zh-TW-HsiaoChenNeural",
+ "rate": "-10%",
+ "generated_at": "2026-10-19T00:48:04.682Z",
+ "files": [
+  "b02fd516",
+  "609345db",
+  "c959e508",
+  "f89e21d3",
+  "5181ff3b",
+  "36ea2cbb",
+  "c8018587",
+  "1a74d2bd",
+  "acb382a7",
+  "d87cf538",
+  "a2a379b2",
+  "6e05ebf5",
+  "e579f4fd",
+  "c0f9caa1",
+  "796c65c3",
+  "49661b2a",
+  "c87d0a3b",
+  "78b2ec4a",
+  "eabf91bc",
+  "d01bec87",
+  "00a37ed8",
+  "e5d23cca",
+  "f5df34b5",
+  "0684dbd4",
+  "cbfc3f34",
+  "312d8b76",
+  "da879fa2",
+  "f5cde80c",
+  "35986292",
+  "cdab084c",
+  "2ca6889c",
+  "1c19b28e",
+  "f4d1cf8b",
+  "a1015ec0",
+  "d7639940",
+  "df8f75aa",
+  "55336358",
+  "ca65edb4",
+  "78508f0f",
+  "92a7c797",
+  "fd93e7da",
+  "664ce39d",
+  "9184a088",
+  "d4941baa",
+  "c32ca8ee",
+  "72c102c8",
+  "0bdc6503",
+  "bad39e1b",
+  "029c5278",
+  "4f4effd6",
+  "e4880300",
+  "f57dc7c1",
+  "1346b3d5",
+  "9ffbb526",
+  "303f801a",
+  "262fc84f",
+  "48c28830",
+  "7bb2a82b",
+  "7234676e",
+  "c713662f",
+  "b486055f",
+  "d9cbd950",
+  "326b1a6a",
+  "55a728ff",
+  "928569cc",
+  "5c7964b3",
+  "6ff5252d",
+  "872c3822",
+  "e6656c92",
+  "5a798b66",
+  "33244515",
+  "2b16d8ac",
+  "6a8f6ea1",
+  "82b40246",
+  "f360081d",
+  "1b95efe8",
+  "24b0a33c",
+  "d4c82f59",
+  "e8027309",
+  "7220cd9e",
+  "60be12ed",
+  "f195338d",
+  "ebbc6b44",
+  "cc151de7",
+  "0eb0982b",
+  "c5dc1724",
+  "b2c86c8b",
+  "54c82173",
+  "4e1dce1a",
+  "4387243c",
+  "522826b6",
+  "a7688031",
+  "d57473d8",
+  "0875681b",
+  "d652b893",
+  "60f942b6",
+  "02fd86fc",
+  "e185ceb4",
+  "f3113a76",
+  "bd341727",
+  "3364de0b",
+  "cfc09728",
+  "834ae5f6",
+  "905516d4",
+  "ed8dc513",
+  "63b65638",
+  "bf3a0135",
+  "d4667e1c",
+  "9d950b78",
+  "b12c6376",
+  "41454e02",
+  "bb418a26",
+  "2c6b42ad",
+  "00a93dbb",
+  "f6d3a08c",
+  "c4391857",
+  "c0e52237",
+  "ca7237da",
+  "f90f9bcc",
+  "63419dd5",
+  "9d414045",
+  "7935951d",
+  "a7ee9115",
+  "b97c37fb",
+  "6826521c",
+  "ab4176a5",
+  "553eb9cf",
+  "b2003639",
+  "6bf89b7f",
+  "eba42cb1",
+  "b657d963",
+  "fcc08801",
+  "05c20662",
+  "c3bc06a9",
+  "448d72f0",
+  "cc13f559",
+  "ced0100c",
+  "c1dde660",
+  "22f97bcb"
+ ],
+ "index": [
+  {
+   "hash": "b02fd516",
+   "where": "M1 學習目標"
+  },
+  {
+   "hash": "609345db",
+   "where": "M1 圖文 1"
+  },
+  {
+   "hash": "c959e508",
+   "where": "M1 圖文 2"
+  },
+  {
+   "hash": "f89e21d3",
+   "where": "M1 圖文 3"
+  },
+  {
+   "hash": "5181ff3b",
+   "where": "M1 圖文 4"
+  },
+  {
+   "hash": "36ea2cbb",
+   "where": "M1 生活案例"
+  },
+  {
+   "hash": "c8018587",
+   "where": "M1 互動問題 M1Q1"
+  },
+  {
+   "hash": "1a74d2bd",
+   "where": "M1 互動問題 M1Q2"
+  },
+  {
+   "hash": "acb382a7",
+   "where": "M1 互動問題 M1Q3"
+  },
+  {
+   "hash": "d87cf538",
+   "where": "M2 學習目標"
+  },
+  {
+   "hash": "a2a379b2",
+   "where": "M2 圖文 1"
+  },
+  {
+   "hash": "6e05ebf5",
+   "where": "M2 圖文 2"
+  },
+  {
+   "hash": "e579f4fd",
+   "where": "M2 圖文 3"
+  },
+  {
+   "hash": "c0f9caa1",
+   "where": "M2 圖文 4"
+  },
+  {
+   "hash": "796c65c3",
+   "where": "M2 生活案例"
+  },
+  {
+   "hash": "49661b2a",
+   "where": "M2 互動問題 M2Q1"
+  },
+  {
+   "hash": "c87d0a3b",
+   "where": "M2 互動問題 M2Q2"
+  },
+  {
+   "hash": "78b2ec4a",
+   "where": "M2 互動問題 M2Q3"
+  },
+  {
+   "hash": "eabf91bc",
+   "where": "M3 學習目標"
+  },
+  {
+   "hash": "d01bec87",
+   "where": "M3 圖文 1"
+  },
+  {
+   "hash": "00a37ed8",
+   "where": "M3 圖文 2"
+  },
+  {
+   "hash": "e5d23cca",
+   "where": "M3 圖文 3"
+  },
+  {
+   "hash": "f5df34b5",
+   "where": "M3 圖文 4"
+  },
+  {
+   "hash": "0684dbd4",
+   "where": "M3 圖文 5"
+  },
+  {
+   "hash": "cbfc3f34",
+   "where": "M3 圖文 6"
+  },
+  {
+   "hash": "312d8b76",
+   "where": "M3 圖文 7"
+  },
+  {
+   "hash": "da879fa2",
+   "where": "M3 生活案例"
+  },
+  {
+   "hash": "f5cde80c",
+   "where": "M3 互動問題 M3Q1"
+  },
+  {
+   "hash": "35986292",
+   "where": "M3 互動問題 M3Q2"
+  },
+  {
+   "hash": "cdab084c",
+   "where": "M3 互動問題 M3Q3"
+  },
+  {
+   "hash": "2ca6889c",
+   "where": "M4 學習目標"
+  },
+  {
+   "hash": "1c19b28e",
+   "where": "M4 圖文 1"
+  },
+  {
+   "hash": "f4d1cf8b",
+   "where": "M4 圖文 2"
+  },
+  {
+   "hash": "a1015ec0",
+   "where": "M4 圖文 3"
+  },
+  {
+   "hash": "d7639940",
+   "where": "M4 圖文 4"
+  },
+  {
+   "hash": "df8f75aa",
+   "where": "M4 生活案例"
+  },
+  {
+   "hash": "55336358",
+   "where": "M4 互動問題 M4Q1"
+  },
+  {
+   "hash": "ca65edb4",
+   "where": "M4 互動問題 M4Q2"
+  },
+  {
+   "hash": "78508f0f",
+   "where": "M4 互動問題 M4Q3"
+  },
+  {
+   "hash": "92a7c797",
+   "where": "M5 學習目標"
+  },
+  {
+   "hash": "fd93e7da",
+   "where": "M5 圖文 1"
+  },
+  {
+   "hash": "664ce39d",
+   "where": "M5 圖文 2"
+  },
+  {
+   "hash": "9184a088",
+   "where": "M5 圖文 3"
+  },
+  {
+   "hash": "d4941baa",
+   "where": "M5 圖文 4"
+  },
+  {
+   "hash": "c32ca8ee",
+   "where": "M5 圖文 5"
+  },
+  {
+   "hash": "72c102c8",
+   "where": "M5 圖文 6"
+  },
+  {
+   "hash": "0bdc6503",
+   "where": "M5 圖文 7"
+  },
+  {
+   "hash": "bad39e1b",
+   "where": "M5 胰島素施打互動學習"
+  },
+  {
+   "hash": "029c5278",
+   "where": "M5 生活案例"
+  },
+  {
+   "hash": "4f4effd6",
+   "where": "M5 互動問題 M5Q1"
+  },
+  {
+   "hash": "e4880300",
+   "where": "M5 互動問題 M5Q2"
+  },
+  {
+   "hash": "f57dc7c1",
+   "where": "M5 互動問題 M5Q3"
+  },
+  {
+   "hash": "1346b3d5",
+   "where": "M6 學習目標"
+  },
+  {
+   "hash": "9ffbb526",
+   "where": "M6 圖文 1"
+  },
+  {
+   "hash": "303f801a",
+   "where": "M6 圖文 2"
+  },
+  {
+   "hash": "262fc84f",
+   "where": "M6 圖文 3"
+  },
+  {
+   "hash": "48c28830",
+   "where": "M6 圖文 4"
+  },
+  {
+   "hash": "7bb2a82b",
+   "where": "M6 圖文 5"
+  },
+  {
+   "hash": "7234676e",
+   "where": "M6 生活案例"
+  },
+  {
+   "hash": "c713662f",
+   "where": "M6 互動問題 M6Q1"
+  },
+  {
+   "hash": "b486055f",
+   "where": "M6 互動問題 M6Q2"
+  },
+  {
+   "hash": "d9cbd950",
+   "where": "M6 互動問題 M6Q3"
+  },
+  {
+   "hash": "326b1a6a",
+   "where": "M7 學習目標"
+  },
+  {
+   "hash": "55a728ff",
+   "where": "M7 圖文 1"
+  },
+  {
+   "hash": "928569cc",
+   "where": "M7 圖文 2"
+  },
+  {
+   "hash": "5c7964b3",
+   "where": "M7 圖文 3"
+  },
+  {
+   "hash": "6ff5252d",
+   "where": "M7 圖文 4"
+  },
+  {
+   "hash": "872c3822",
+   "where": "M7 圖文 5"
+  },
+  {
+   "hash": "e6656c92",
+   "where": "M7 生活案例"
+  },
+  {
+   "hash": "5a798b66",
+   "where": "M7 互動問題 M7Q1"
+  },
+  {
+   "hash": "33244515",
+   "where": "M7 互動問題 M7Q2"
+  },
+  {
+   "hash": "2b16d8ac",
+   "where": "M7 互動問題 M7Q3"
+  },
+  {
+   "hash": "6a8f6ea1",
+   "where": "M8 學習目標"
+  },
+  {
+   "hash": "82b40246",
+   "where": "M8 圖文 1"
+  },
+  {
+   "hash": "f360081d",
+   "where": "M8 圖文 2"
+  },
+  {
+   "hash": "1b95efe8",
+   "where": "M8 圖文 3"
+  },
+  {
+   "hash": "24b0a33c",
+   "where": "M8 圖文 4"
+  },
+  {
+   "hash": "d4c82f59",
+   "where": "M8 圖文 5"
+  },
+  {
+   "hash": "e8027309",
+   "where": "M8 生活案例"
+  },
+  {
+   "hash": "7220cd9e",
+   "where": "M8 互動問題 M8Q1"
+  },
+  {
+   "hash": "60be12ed",
+   "where": "M8 互動問題 M8Q2"
+  },
+  {
+   "hash": "f195338d",
+   "where": "M8 互動問題 M8Q3"
+  },
+  {
+   "hash": "ebbc6b44",
+   "where": "知識測驗 K02"
+  },
+  {
+   "hash": "cc151de7",
+   "where": "知識測驗 K04"
+  },
+  {
+   "hash": "0eb0982b",
+   "where": "知識測驗 K07"
+  },
+  {
+   "hash": "c5dc1724",
+   "where": "知識測驗 K10"
+  },
+  {
+   "hash": "b2c86c8b",
+   "where": "知識測驗 K13"
+  },
+  {
+   "hash": "54c82173",
+   "where": "知識測驗 K14"
+  },
+  {
+   "hash": "4e1dce1a",
+   "where": "知識測驗 K16"
+  },
+  {
+   "hash": "4387243c",
+   "where": "知識測驗 K17"
+  },
+  {
+   "hash": "522826b6",
+   "where": "知識測驗 K19"
+  },
+  {
+   "hash": "a7688031",
+   "where": "知識測驗 K24"
+  },
+  {
+   "hash": "d57473d8",
+   "where": "問卷 HL01"
+  },
+  {
+   "hash": "0875681b",
+   "where": "問卷 HL02"
+  },
+  {
+   "hash": "d652b893",
+   "where": "問卷 HL03"
+  },
+  {
+   "hash": "60f942b6",
+   "where": "問卷 HL04"
+  },
+  {
+   "hash": "02fd86fc",
+   "where": "問卷 HL05"
+  },
+  {
+   "hash": "e185ceb4",
+   "where": "問卷 AX01"
+  },
+  {
+   "hash": "f3113a76",
+   "where": "問卷 AX02"
+  },
+  {
+   "hash": "bd341727",
+   "where": "問卷 AX03"
+  },
+  {
+   "hash": "3364de0b",
+   "where": "問卷 AX04"
+  },
+  {
+   "hash": "cfc09728",
+   "where": "問卷 AX05"
+  },
+  {
+   "hash": "834ae5f6",
+   "where": "問卷 AX06"
+  },
+  {
+   "hash": "905516d4",
+   "where": "問卷 AX07"
+  },
+  {
+   "hash": "ed8dc513",
+   "where": "問卷 LSE01"
+  },
+  {
+   "hash": "63b65638",
+   "where": "問卷 LSE02"
+  },
+  {
+   "hash": "bf3a0135",
+   "where": "問卷 LSE03"
+  },
+  {
+   "hash": "d4667e1c",
+   "where": "問卷 LSE04"
+  },
+  {
+   "hash": "9d950b78",
+   "where": "問卷 LSE05"
+  },
+  {
+   "hash": "b12c6376",
+   "where": "問卷 SE01"
+  },
+  {
+   "hash": "41454e02",
+   "where": "問卷 SE02"
+  },
+  {
+   "hash": "bb418a26",
+   "where": "問卷 SE03"
+  },
+  {
+   "hash": "2c6b42ad",
+   "where": "問卷 SE04"
+  },
+  {
+   "hash": "00a93dbb",
+   "where": "問卷 SE05"
+  },
+  {
+   "hash": "f6d3a08c",
+   "where": "問卷 SE06"
+  },
+  {
+   "hash": "c4391857",
+   "where": "問卷 SE07"
+  },
+  {
+   "hash": "c0e52237",
+   "where": "問卷 SE08"
+  },
+  {
+   "hash": "ca7237da",
+   "where": "問卷 SE09"
+  },
+  {
+   "hash": "f90f9bcc",
+   "where": "問卷 SE10"
+  },
+  {
+   "hash": "63419dd5",
+   "where": "問卷 ESAT01"
+  },
+  {
+   "hash": "9d414045",
+   "where": "問卷 ESAT02"
+  },
+  {
+   "hash": "7935951d",
+   "where": "問卷 ESAT03"
+  },
+  {
+   "hash": "a7ee9115",
+   "where": "問卷 ESAT04"
+  },
+  {
+   "hash": "b97c37fb",
+   "where": "問卷 ESAT05"
+  },
+  {
+   "hash": "6826521c",
+   "where": "問卷 ESAT06"
+  },
+  {
+   "hash": "ab4176a5",
+   "where": "問卷 ESAT07"
+  },
+  {
+   "hash": "553eb9cf",
+   "where": "問卷 SUS01"
+  },
+  {
+   "hash": "b2003639",
+   "where": "問卷 SUS02"
+  },
+  {
+   "hash": "6bf89b7f",
+   "where": "問卷 SUS03"
+  },
+  {
+   "hash": "eba42cb1",
+   "where": "問卷 SUS04"
+  },
+  {
+   "hash": "b657d963",
+   "where": "問卷 SUS05"
+  },
+  {
+   "hash": "fcc08801",
+   "where": "問卷 SUS06"
+  },
+  {
+   "hash": "05c20662",
+   "where": "問卷 SUS07"
+  },
+  {
+   "hash": "c3bc06a9",
+   "where": "問卷 SUS08"
+  },
+  {
+   "hash": "448d72f0",
+   "where": "問卷 SUS09"
+  },
+  {
+   "hash": "cc13f559",
+   "where": "問卷 SUS10"
+  },
+  {
+   "hash": "ced0100c",
+   "where": "問卷 SAT01"
+  },
+  {
+   "hash": "c1dde660",
+   "where": "問卷 SAT02"
+  },
+  {
+   "hash": "22f97bcb",
+   "where": "問卷 SAT03"
+  }
+ ]
+}

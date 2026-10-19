@@ -50,7 +50,31 @@ npm start            # 或在 Windows 直接雙擊 start.bat
 - **PWA**：manifest（standalone、maskable icon）＋ Service Worker，可「加入主畫面」、離線開啟介面；研究 API 一律走網路，不快取。
 - 支援深色模式、`prefers-reduced-motion`、鍵盤操作與螢幕閱讀器（ARIA role / aria-live）。
 
-## 串接真正 LLM
+## 串接生成式 AI（後臺「🧠 AI 設定」）
+
+管理者登入後臺 →「AI 設定」即可切換，不需重新部署：
+
+| 引擎 | 說明 |
+|---|---|
+| 本機衛教知識庫 | 規則式，免金鑰（預設） |
+| Google Gemini API | gemini-3.5-flash／gemini-3.1-pro-preview／gemini-3.1-flash-lite |
+| OpenAI API | gpt-5.6-sol／gpt-5.6-terra／gpt-5.6-luna／gpt-5.5／gpt-5.5-pro |
+| Groq API | llama-3.3-70b-versatile／qwen/qwen-3-32b／llama-3.1-8b-instant |
+| 本機 CLI | codex／gemini／claude CLI（只在本機 start.bat 執行時可用，用這台電腦已登入的帳號） |
+
+- 金鑰在後臺輸入，存在伺服器端（本機 `data/ai_settings.json`、雲端 Netlify Blobs `settings/ai`），畫面只顯示末 4 碼，不進 GitHub。
+- 可開放「受試者自備金鑰」：金鑰只存在受試者瀏覽器，每次提問隨請求送出，伺服器不保存。
+- 每題實際使用的引擎記錄在 `ai_interactions.provider`（例：`gemini:gemini-3.5-flash`、`cli:codex`、`local(fallback:openai)`）。
+
+## 預錄語音
+
+`node scripts/gen_audio.js`（需 `pip install edge-tts`）把每個「🔊」按鈕的文字轉成 `public/audio/<雜湊>.mp3`，受試者按「聽語音」播放；後臺改了衛教內容後重跑即可補上新段落（`--prune` 刪除舊檔）。沒有音檔的段落自動改用瀏覽器朗讀。
+
+## 問卷匯出成 Google 表單
+
+後臺「資料匯出」→「下載 Google 表單產生程式 (.gs)」→ 貼到 script.google.com 執行 `createAllForms`，自動建立前測／後測／滿意度 3 份表單與回覆試算表（傳統組施測用）。
+
+## 以環境變數設定 LLM（舊方式，仍可用，後臺設定優先）
 
 預設 `LLM_PROVIDER=local`（本機規則式知識庫，免金鑰）。改用 LLM：
 
